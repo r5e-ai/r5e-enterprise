@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/parser_drift_list_response.json",
+  "x-version": "1.0.0",
+  "title": "parser_drift_list_response",
+  "description": "Response body for GET /v1/audit/parser-drift (spec 012 S4). One row per (api_format, event_type) an LLM-proxy parser reported as unrecognised for the session's tenant, most recently seen first. `sample_redacted` is keys-only (`keys=a,b,c`), never payload content. `new_since_boot` is the number of rows first inserted since this gateway node booted (the same counter /readyz reports as `parser_drift`).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["events", "new_since_boot"],
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "api_format", "event_type", "sample_redacted", "first_seen", "last_seen", "count"],
+        "properties": {
+          "id": { "type": "integer" },
+          "api_format": {
+            "type": "string",
+            "description": "LlmProviderConfig.api_format the parser was selected for (e.g. anthropic_messages, openai_responses)."
+          },
+          "event_type": {
+            "type": "string",
+            "description": "Discriminator the parser logged: `event:<type>`, `block:<type>`, `delta:<type>` (Anthropic) or `event:<type>`, `output_item:<type>` (OpenAI Responses)."
+          },
+          "sample_redacted": {
+            "type": ["string", "null"],
+            "description": "Keys-only sample of the first sighting (`keys=a,b,c`, at most 200 bytes)."
+          },
+          "first_seen": { "type": "string", "format": "date-time" },
+          "last_seen": { "type": "string", "format": "date-time" },
+          "count": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "new_since_boot": { "type": "integer", "minimum": 0 }
+  }
+}

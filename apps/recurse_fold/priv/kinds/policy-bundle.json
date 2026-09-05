@@ -1,0 +1,63 @@
+{
+  "group": "gateway.r5e.io",
+  "kind": "PolicyBundle",
+  "version": "v1alpha1",
+  "substrate": "resource",
+  "naming": {
+    "mode": "literal",
+    "value": "active",
+    "readmitBy": "actorOfRecordOrSuccessor"
+  },
+  "description": "The policy text in force, detached at sourceRef with public-record retention. Only the name `active` is admissible; admitting it is the activation, and re-admitting it supersedes the previous bundle on the record (supersededBy on the store entry).",
+  "schema": {
+    "required": [
+      "engine",
+      "sourceRef",
+      "governs"
+    ],
+    "properties": {
+      "engine": {
+        "type": "string",
+        "enum": [
+          "cedar"
+        ]
+      },
+      "sourceRef": {
+        "type": "ref",
+        "ref": {
+          "bytes": true,
+          "retention": "public-record"
+        }
+      },
+      "description": {
+        "type": "string"
+      },
+      "governs": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "gateway.r5e.io/v1alpha1/LlmCall",
+            "gateway.r5e.io/v1alpha1/ToolCall"
+          ]
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "epistemicScope": {
+    "claims": [
+      "the policy text at `sourceRef` was submitted by the recorded actor and admitted under the name `active` at the recorded position on the chain",
+      "this bundle governs only the workload Kind paths declared in governs, never kernel or gateway policy-management admissions",
+      "the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain \u2014 both re-derivable offline from the bundle alone"
+    ],
+    "doesNotClaim": [
+      "that the policy is correct, complete, or expresses anyone's intent",
+      "that whoever set policy was entitled to set it \u2014 the record shows which key admitted it and which endorsement chain that key exercised; whether that chain roots in a key worth trusting is the reader's pin to make, never this chain's claim",
+      "that any decision recorded under it was enforced outside this kernel's admission gate",
+      "that any person, office, or organization holds the key that signed \u2014 the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin"
+    ]
+  },
+  "predicates": [],
+  "requiresAuthority": true
+}

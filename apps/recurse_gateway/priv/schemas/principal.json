@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/principal.json",
+  "x-version": "1.0.0",
+  "x-status": "placeholder",
+  "title": "principal",
+  "description": "F004 placeholder schema for principal. Full shape lands in the implementation phase that owns this entity (see contracts/audit_api_extensions.md). DO NOT consume this skeleton in production code without verifying the published version's x-version is stable.",
+  "type": "object",
+  "additionalProperties": true
+}

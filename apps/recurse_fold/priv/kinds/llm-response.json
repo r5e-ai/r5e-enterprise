@@ -1,0 +1,141 @@
+{
+  "group": "gateway.r5e.io",
+  "kind": "LlmResponse",
+  "version": "v1alpha1",
+  "substrate": "event",
+  "naming": {
+    "mode": "content"
+  },
+  "description": "How one model call ended: its outcome, its response bytes when there were any, and the tool calls the gateway extracted from it, in the model's order. toolCalls is required and may be empty.",
+  "schema": {
+    "required": [
+      "llmCall",
+      "outcome",
+      "toolCalls"
+    ],
+    "properties": {
+      "llmCall": {
+        "type": "ref",
+        "ref": {
+          "event": "gateway.r5e.io/v1alpha1/LlmCall",
+          "outcome": "admitted"
+        }
+      },
+      "outcome": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "error"
+        ]
+      },
+      "toolCalls": {
+        "type": "array",
+        "items": {
+          "type": "ref",
+          "ref": {
+            "event": "gateway.r5e.io/v1alpha1/ToolCall",
+            "outcome": "any"
+          }
+        }
+      },
+      "completion": {
+        "type": "ref",
+        "ref": {
+          "kind": "gateway.r5e.io/v1alpha1/Completion"
+        }
+      },
+      "upstreamStatus": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 599
+      },
+      "responseWithheld": {
+        "type": "boolean"
+      },
+      "errorKind": {
+        "type": "string",
+        "enum": [
+          "upstream_4xx",
+          "upstream_5xx",
+          "parser_failure",
+          "policy_evaluation_failure",
+          "upstream_connection_failed"
+        ]
+      },
+      "usage": {
+        "type": "object",
+        "properties": {
+          "inputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reasoningTokens": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "latency": {
+        "type": "object",
+        "properties": {
+          "upstreamMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "addedMs": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "finishReason": {
+        "type": "string"
+      },
+      "completedAt": {
+        "type": "string"
+      },
+      "supersedes": {
+        "type": "ref",
+        "ref": {
+          "event": "gateway.r5e.io/v1alpha1/LlmResponse",
+          "outcome": "admitted",
+          "sameAnchor": "llmCall"
+        }
+      }
+    },
+    "additionalProperties": false,
+    "requires": [
+      {
+        "when": {
+          "field": "outcome",
+          "equals": "ok"
+        },
+        "then": [
+          "completion"
+        ]
+      }
+    ]
+  },
+  "epistemicScope": {
+    "claims": [
+      "the call at `llmCall` ended with `outcome` as recorded by the actor",
+      "when `completion` is present, the response bytes the actor recorded for that call are the Completion it names",
+      "the events listed in `toolCalls` are the tool calls the actor extracted from that response, in the order given by their `index`",
+      "when `responseWithheld` is true, the actor did not release the upstream's response bytes to the client: nothing in that body was classified, so nothing in it was admitted",
+      "the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone"
+    ],
+    "doesNotClaim": [
+      "that the listed tool calls are all the tool calls the model proposed — absence from the record is never provable",
+      "that the listed tool calls ran",
+      "that the usage figures are the provider's",
+      "that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin"
+    ]
+  },
+  "predicates": []
+}

@@ -1,0 +1,236 @@
+# r5e-enterprise — local quickstart stack (spec 012 S1).
+#
+#   ./bin/r5e init              # .env with generated secrets
+#   docker compose up -d        # postgres + gateway (the first up builds the image)
+#   ./bin/r5e status            # /healthz + /readyz
+#   ./bin/r5e login             # dev-login cookie + dashboard URL
+#
+# Zero cloud: the gateway signs receipts with a local PEM key
+# (LocalPemSecretsProvider), stores payloads in a content-addressed
+# directory (FilesystemStorageProvider), and reads its Cedar policy from
+# ./policy/bundle.cedar — or, with `--profile git-policy` and
+# R5E_POLICY_GIT_URL set, from a git repo via the policy-sync sidecar
+# (spec 012 S5). Everything the image needs at runtime is set in
+# `environment:` below; `.env` only carries the per-checkout secrets and
+# the handful of knobs a user may want to change.
+#
+# The previous AWS/WorkOS reference stack lives in
+# docker-compose/reference-aws.yaml.
+
+name: r5e
+
+# Two networks (spec 012 §13): `backend` is internal-only (no route out of
+# the host) and carries postgres <-> gateway; `egress` is what the gateway
+# uses to reach the LLM upstream and where its ports are published.
+# Postgres is therefore unreachable from the internet and the gateway is
+# the only thing that can reach it.
+networks:
+  backend:
+    internal: true
+  egress:
+
+volumes:
+  pg_data:
+  secrets:      # broker JWT key + local attestation signing key
+  kernel:       # mandatory admission log, artifacts, and node keys
+  cas:          # content-addressed payload store
+  # The Cedar bundle the gateway evaluates (spec 012 S5). Compose cannot
+  # mount a different source per profile, so /policy is ALWAYS this
+  # volume and the checkout's ./policy is bind-mounted read-only next to
+  # it at /policy-default. The gateway entrypoint decides what the
+  # volume holds: with R5E_POLICY_GIT_URL unset, bundle.cedar is a
+  # symlink to /policy-default/bundle.cedar (edit ./policy/bundle.cedar
+  # and the gateway reloads it within R5E_POLICY_BUNDLE_POLL_MS); with
+  # it set, `policy-sync` (profile git-policy) writes the real file here.
+  policy:
+  vector_data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: recurse
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-recurse}"
+      POSTGRES_DB: recurse
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    # Not published on the host by default (a Homebrew Postgres on :5432
+    # is common on dev Macs). Add `ports: ["5433:5432"]` locally if you
+    # want psql access.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recurse -d recurse"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: "${R5E_BUILD_CONTEXT:-.release-context}"
+      dockerfile: r5e-enterprise/Dockerfile
+    # Override to run a differently-tagged local build without editing
+    # this file (R5E_GATEWAY_IMAGE=r5e/gateway:mytag docker compose up).
+    image: "${R5E_GATEWAY_IMAGE:-r5e/gateway:local}"
+    # Named so the optional Vector sidecar (docker-compose/vector.toml,
+    # include_containers) can find it.
+    container_name: "${R5E_GATEWAY_CONTAINER:-recurse-gateway}"
+    env_file:
+      - .env
+    environment:
+      # --- audit plane (dashboard + API) ---
+      R5E_START_HTTP: "true"
+      PORT: "4000"
+      R5E_PUBLIC_HOSTNAME: "${R5E_PUBLIC_HOSTNAME:-http://localhost:${R5E_GATEWAY_PORT:-4000}}"
+      R5E_AUDIT_CONSOLE_ENABLED: "true"
+      R5E_BROKER_MODE: collapsed
+      BROWSER_OIDC_PROVIDER: oidc
+      R5E_DEV_LOGIN_ENABLED: "${R5E_DEV_LOGIN_ENABLED:-true}"
+      # Plain http://localhost: the browser-session cookie must not carry
+      # the Secure flag or curl/browsers will drop it.
+      R5E_SECURE_COOKIE: "false"
+      BROKER_JWT_SIGNING_KEY_PATH: /secrets/broker-signing-key.pem
+      # info keeps Ecto's per-INSERT parameter dumps (receipt tags, session
+      # ids) out of `docker compose logs`; LOGGER_LEVEL=debug in .env opts in.
+      LOGGER_LEVEL: "${LOGGER_LEVEL:-info}"
+      # --- LLM proxy listener (what ANTHROPIC_BASE_URL points at) ---
+      R5E_LLM_PROXY_ENABLED: "true"
+      R5E_LLM_PROXY_SCHEME: http
+      R5E_LLM_PROXY_PORT: "4443"
+      # Spec 012 S2: seed the api.anthropic.com upstream row at boot and
+      # route requests whose Host is the gateway itself (ANTHROPIC_BASE_URL
+      # mode) to it. The gateway stores no credential; Claude Code's own
+      # bearer / x-api-key is forwarded verbatim.
+      R5E_LLM_PROXY_UPSTREAMS: "${R5E_LLM_PROXY_UPSTREAMS:-anthropic}"
+      R5E_LLM_PROXY_DEFAULT_UPSTREAM_HOST: "${R5E_LLM_PROXY_DEFAULT_UPSTREAM_HOST:-api.anthropic.com}"
+      # --- providers (zero cloud) ---
+      R5E_TENANT_ID: "${R5E_TENANT_ID:-01TEN_LOCAL}"
+      R5E_LLM_PROXY_DEFAULT_TENANT_ID: "${R5E_TENANT_ID:-01TEN_LOCAL}"
+      R5E_PROVIDER_LEDGER_IMPL: postgres_merkle
+      R5E_PROVIDER_PAYLOAD_BROKER_IMPL: filesystem
+      R5E_CAS_ROOT: /data/cas
+      # Spec 012 S6b: also keep the request/response bytes each receipt's
+      # prompt_hash/response_hash cover in the `cas` volume, so
+      # `bin/r5e evidence export` packs them and the verifier checks them.
+      # They contain your prompts; the volume is on your machine. Set
+      # R5E_RETAIN_PAYLOADS=false disables the legacy payload mirror.
+      # The admission chain still retains evidence required for its records.
+      R5E_FOLD_ENABLED: "true"
+      R5E_FOLD_DATA_DIR: /data/kernel
+      R5E_FOLD_START_SERVER: "false"
+      R5E_RETAIN_PAYLOADS: "${R5E_RETAIN_PAYLOADS:-true}"
+      R5E_PROVIDER_SECRETS_IMPL: local_pem
+      R5E_LOCAL_SIGNING_KEY_PATH: /secrets/local-signing-key.pem
+      R5E_LOCAL_SIGNING_ALG: "${R5E_LOCAL_SIGNING_ALG:-es256}"
+      R5E_PROVIDER_POLICY_IMPL: filesystem
+      RECURSE_POLICY_BUNDLE_PATH: /policy/bundle.cedar
+      # RECURSE_POLICY_SCHEMA_PATH is baked into the image (Dockerfile ENV).
+      # Spec 012 S5: re-read the bundle when the file changes (stat every
+      # 5 s) — no SIGHUP needed when policy-sync or you replace it. A
+      # bundle that fails to parse keeps the previous one active and is
+      # reported on /readyz under "policy".
+      R5E_POLICY_BUNDLE_POLL_MS: "${R5E_POLICY_BUNDLE_POLL_MS:-5000}"
+      # Read by the entrypoint only (see the `policy` volume note): unset
+      # = serve ./policy/bundle.cedar; set = leave the volume to policy-sync.
+      R5E_POLICY_GIT_URL: "${R5E_POLICY_GIT_URL:-}"
+      # --- database (compose-internal Postgres, no TLS) ---
+      DATABASE_URL: "postgres://recurse:${POSTGRES_PASSWORD:-recurse}@postgres:5432/recurse"
+      R5E_DATABASE_SSL: "false"
+      # SECRET_KEY_BASE + GATEWAY_ADMIN_SESSION_SECRET_KEY_BASE come from .env.
+    # Host ports are overridable from .env (R5E_GATEWAY_PORT / R5E_PROXY_PORT)
+    # for machines where 4000 or 4443 is already taken; the container-side
+    # ports are fixed. Published on loopback only: dev login is on by
+    # default and mints a platform_operator cookie, and the proxy carries
+    # your Anthropic credential. To expose on the LAN, drop the `127.0.0.1:`
+    # prefix here AND set R5E_DEV_LOGIN_ENABLED=false.
+    ports:
+      - "127.0.0.1:${R5E_GATEWAY_PORT:-4000}:4000"   # dashboard: http://localhost:4000/admin
+      - "127.0.0.1:${R5E_PROXY_PORT:-4443}:4443"     # ANTHROPIC_BASE_URL=http://localhost:4443
+    volumes:
+      - secrets:/secrets
+      - cas:/data/cas
+      - kernel:/data/kernel
+      - policy:/policy
+      - ./policy:/policy-default:ro
+    networks:
+      - backend
+      - egress
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # --- container hardening (spec 012 §13) ---
+    # The image runs as uid 1000 `recurse` (Dockerfile USER). The root
+    # filesystem is read-only; the release only writes under RELEASE_TMP
+    # (=/tmp, tmpfs) plus the two named volumes above. No capabilities are
+    # needed: both listeners bind ports > 1024.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  # policy-sync (spec 012 S5) — keeps /policy/bundle.cedar equal to one
+  # file in a git repo you control:
+  #
+  #   R5E_POLICY_GIT_URL=https://gitlab.com/you/policy.git   # in .env
+  #   docker compose --profile git-policy up -d
+  #
+  # Every R5E_POLICY_GIT_INTERVAL seconds it fetches R5E_POLICY_GIT_REF,
+  # and when R5E_POLICY_GIT_PATH's content hash changed, copies it into
+  # the shared `policy` volume with a temp-file + rename; the gateway's
+  # poller picks the rename up. A fetch failure or a missing file leaves
+  # the current bundle in place; a bundle that does not parse is
+  # rejected by the gateway (see /readyz "policy"). Private https repos:
+  # put R5E_POLICY_GIT_TOKEN in .env (it is passed to git through a
+  # credential helper, never logged). policy-starter/ is the template
+  # for that repo.
+  policy-sync:
+    image: alpine/git:v2.49.1
+    profiles: [git-policy]
+    entrypoint: ["/bin/sh", "/policy-sync.sh"]
+    environment:
+      R5E_POLICY_GIT_URL: "${R5E_POLICY_GIT_URL:-}"
+      R5E_POLICY_GIT_REF: "${R5E_POLICY_GIT_REF:-main}"
+      R5E_POLICY_GIT_PATH: "${R5E_POLICY_GIT_PATH:-policy/bundle.cedar}"
+      R5E_POLICY_GIT_INTERVAL: "${R5E_POLICY_GIT_INTERVAL:-30}"
+      R5E_POLICY_GIT_TOKEN: "${R5E_POLICY_GIT_TOKEN:-}"
+      R5E_POLICY_GIT_USERNAME: "${R5E_POLICY_GIT_USERNAME:-oauth2}"
+    volumes:
+      - ./docker-compose/policy-sync.sh:/policy-sync.sh:ro
+      - policy:/policy
+    networks:
+      - egress
+    # The script exits 0 with a message when R5E_POLICY_GIT_URL is unset;
+    # on-failure keeps that from restart-looping while still bringing the
+    # loop back after a crash.
+    restart: on-failure
+
+  # Optional log shipper: `docker compose --profile logs up`.
+  vector:
+    image: timberio/vector:0.44.0-alpine
+    profiles: [logs]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker-compose/vector.toml:/etc/vector/vector.toml:ro
+      - vector_data:/var/lib/vector
+    networks:
+      - egress
+    depends_on:
+      - gateway
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8686/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped

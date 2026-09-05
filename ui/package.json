@@ -1,0 +1,69 @@
+{
+  "name": "r5e-audit-console",
+  "private": true,
+  "version": "0.1.0",
+  "description": "F004 Audit Console SPA — TypeScript + React + Vite. Built into apps/recurse_gateway/priv/static/admin/ via `pnpm run sync-to-priv`.",
+  "type": "module",
+  "scripts": {
+    "predev": "pnpm run copy:monaco",
+    "dev": "vite",
+    "prebuild": "pnpm run copy:monaco",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "sync-to-priv": "rm -rf ../apps/recurse_gateway/priv/static/admin && cp -r dist ../apps/recurse_gateway/priv/static/admin",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b",
+    "test:e2e": "playwright test",
+    "lint": "eslint . && pnpm run check:component-shadows",
+    "check:component-shadows": "tsx scripts/check-component-shadows.ts",
+    "check:tokens": "tsx scripts/check-design-token-drift.ts",
+    "check:design": "pnpm run check:tokens && pnpm run gen:tailwind && bash scripts/check-tailwind-clean.sh",
+    "gen:tailwind": "tsx scripts/generate-tailwind-config.ts",
+    "gen:types": "tsx scripts/generate-types.ts",
+    "copy:monaco": "tsx scripts/copy-monaco-vs.ts"
+  },
+  "dependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-router-dom": "^7.0.0",
+    "@tanstack/react-table": "^8.20.0",
+    "@tanstack/react-query": "^5.62.0",
+    "@tanstack/react-virtual": "^3.10.0",
+    "tailwindcss": "^3.4.0",
+    "lucide-react": "^0.460.0",
+    "zod": "^3.23.0",
+    "monaco-editor": "^0.52.0",
+    "@monaco-editor/react": "^4.6.0",
+    "@monaco-editor/loader": "^1.5.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "vitest": "^2.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@playwright/test": "^1.50.0",
+    "json-schema-to-typescript": "^14.0.0",
+    "typescript": "^5.6.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "eslint": "^9.15.0",
+    "@eslint/js": "^9.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.0",
+    "globals": "^15.12.0",
+    "jsdom": "^29.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

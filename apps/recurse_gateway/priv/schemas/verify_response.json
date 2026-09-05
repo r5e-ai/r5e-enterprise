@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/verify_response.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "verify_response",
+  "description": "Response body for POST /v1/audit/receipts/{run_id}/verify (FR-018). Mirrors Recurse.Gateway.Admin.LocalVerifyHandler.run_checks_and_respond/3 + check_to_json/1. Carries the 5-step cryptographic verification result the SPA renders as five rows in the Verify Locally tab. Each check name + step number is fixed by the FR-018 contract; status atom is pass|fail; explanation is human-readable text the SPA renders verbatim under the row.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "overall_status", "checks", "verified_at", "tier_completeness_advisory"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "description": "Receipt being verified — matches the {run_id} path parameter."
+    },
+    "overall_status": {
+      "type": "string",
+      "enum": ["pass", "fail"],
+      "description": "Aggregate boolean: pass iff every check in `checks` passed; fail otherwise. Stringified atom from the backend."
+    },
+    "checks": {
+      "type": "array",
+      "description": "Five-step verification result; ordered by step (1..5).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step", "name", "status", "explanation"],
+        "properties": {
+          "step": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "1-indexed step number — matches LocalVerifyHandler.check/4."
+          },
+          "name": {
+            "type": "string",
+            "enum": [
+              "signature",
+              "local_merkle_inclusion",
+              "global_merkle_inclusion",
+              "policy_hash_match",
+              "payload_hash_match"
+            ],
+            "description": "Backend check identifier; SPA maps to the row testId + label via CHECK_ORDER."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "explanation": {
+            "type": "string",
+            "description": "Backend-emitted human-readable explanation. The SPA renders this verbatim; auditors must be able to reproduce the result without server access (e.g., expected/actual hex hashes on mismatch, algorithm + key id on success)."
+          }
+        }
+      }
+    },
+    "verified_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when the server completed the checks."
+    },
+    "tier_completeness_advisory": {
+      "type": ["string", "null"],
+      "enum": ["partial", "full", null],
+      "description": "Tier-completeness advisory copied from the receipt; nullable. Discovery-tier Standalone is always partial."
+    }
+  }
+}

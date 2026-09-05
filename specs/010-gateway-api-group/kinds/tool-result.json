@@ -1,0 +1,92 @@
+{
+  "group": "gateway.r5e.io",
+  "kind": "ToolResult",
+  "version": "v1alpha1",
+  "substrate": "event",
+  "naming": {
+    "mode": "content"
+  },
+  "description": "What the recorded actor reports came back from a tool call: inline (a string, object, or array, possibly empty) or detached at resultRef.",
+  "schema": {
+    "required": [
+      "toolCall",
+      "outcome"
+    ],
+    "properties": {
+      "toolCall": {
+        "type": "ref",
+        "ref": {
+          "event": "gateway.r5e.io/v1alpha1/ToolCall",
+          "outcome": "admitted"
+        }
+      },
+      "outcome": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "error"
+        ]
+      },
+      "result": {
+        "type": [
+          "string",
+          "object",
+          "array"
+        ]
+      },
+      "resultRef": {
+        "type": "ref",
+        "ref": {
+          "bytes": true
+        }
+      },
+      "resultMediaType": {
+        "type": "string"
+      },
+      "durationMs": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "exitCode": {
+        "type": "integer"
+      },
+      "supersedes": {
+        "type": "ref",
+        "ref": {
+          "event": "gateway.r5e.io/v1alpha1/ToolResult",
+          "outcome": "admitted",
+          "sameAnchor": "toolCall"
+        }
+      }
+    },
+    "additionalProperties": false,
+    "exactlyOne": [
+      [
+        "result",
+        "resultRef"
+      ]
+    ],
+    "requires": [
+      {
+        "when": {
+          "present": "resultMediaType"
+        },
+        "then": [
+          "resultRef"
+        ]
+      }
+    ]
+  },
+  "epistemicScope": {
+    "claims": [
+      "the recorded actor reported that the tool call at `toolCall` ended with `outcome` and returned this result",
+      "the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone"
+    ],
+    "doesNotClaim": [
+      "that the tool produced it",
+      "that it is complete",
+      "that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin"
+    ]
+  },
+  "predicates": []
+}

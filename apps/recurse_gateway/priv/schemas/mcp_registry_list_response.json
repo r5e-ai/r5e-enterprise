@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/mcp_registry_list_response.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "mcp_registry_list_response",
+  "description": "Response envelope for GET /v1/mcp/registry — the admin-console MCP registry list view. Note: this schema inlines the McpRegistryEntry shape rather than $ref-ing mcp_registry_entry.json so the json-schema-to-typescript codegen path stays self-contained (the codegen treats absolute URIs as HTTP fetches; sibling schemas use $defs / inlining).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entries", "version", "generated_at"],
+  "properties": {
+    "version": { "type": "string", "description": "Registry catalog version." },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "description": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/McpRegistryEntry" }
+    }
+  },
+  "$defs": {
+    "McpRegistryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description",
+        "source",
+        "version",
+        "transport",
+        "trust_tier",
+        "publisher",
+        "capabilities",
+        "policy_constraints",
+        "sbom"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "source": { "type": "string" },
+        "version": { "type": "string" },
+        "transport": {
+          "type": "string",
+          "enum": ["http", "stdio", "websocket", "sse"]
+        },
+        "trust_tier": {
+          "type": "string",
+          "enum": ["verified", "community", "quarantined"]
+        },
+        "publisher": { "type": "string" },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tools"],
+          "properties": {
+            "tools": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/McpTool" }
+            }
+          }
+        },
+        "policy_constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cedar_policies": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "rate_limit_per_minute": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "sbom": { "$ref": "#/$defs/McpSbom" }
+      }
+    },
+    "McpTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "input_schema_ref": { "type": "string" }
+      }
+    },
+    "McpSbom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "digest", "components"],
+      "properties": {
+        "format": { "type": "string" },
+        "digest": { "type": "string" },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/McpSbomComponent" }
+        }
+      }
+    },
+    "McpSbomComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "license": { "type": "string" },
+        "purl": { "type": "string" },
+        "vulnerabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/McpVulnerability" }
+        }
+      }
+    },
+    "McpVulnerability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "source": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical", "unknown"]
+        },
+        "summary": { "type": "string" },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Optional advisory URL (NVD, GHSA, vendor security bulletin)."
+        },
+        "fixed_versions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

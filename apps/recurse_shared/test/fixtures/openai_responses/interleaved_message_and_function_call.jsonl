@@ -1,0 +1,9 @@
+{"type":"response.created","response":{"id":"resp_mix01","object":"response","status":"in_progress"}}
+{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_42","content":[]}}
+{"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_77","role":"assistant","content":[]}}
+{"type":"response.output_text.delta","item_id":"msg_77","delta":"Let me check the directory listing for you."}
+{"type":"response.output_text.completed","item_id":"msg_77"}
+{"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"fc_99","call_id":"call_ls_99","name":"shell","arguments":""}}
+{"type":"response.function_call.arguments.delta","item_id":"fc_99","call_id":"call_ls_99","delta":"{\"cmd\":\"ls\"}"}
+{"type":"response.function_call.completed","item_id":"fc_99","call_id":"call_ls_99"}
+{"type":"response.completed","response":{"id":"resp_mix01","status":"completed","usage":{"input_tokens":50,"output_tokens":30}}}

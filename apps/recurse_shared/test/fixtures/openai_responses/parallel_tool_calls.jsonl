@@ -1,0 +1,11 @@
+{"type":"response.created","response":{"id":"resp_par001","object":"response","status":"in_progress"}}
+{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_a","call_id":"call_aaa","name":"shell","arguments":""}}
+{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_b","call_id":"call_bbb","name":"web_fetch","arguments":""}}
+{"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"fc_c","call_id":"call_ccc","name":"edit","arguments":""}}
+{"type":"response.function_call.arguments.delta","item_id":"fc_a","call_id":"call_aaa","delta":"{\"cmd\":\"pwd\"}"}
+{"type":"response.function_call.arguments.delta","item_id":"fc_b","call_id":"call_bbb","delta":"{\"url\":\"https://example.com/a\"}"}
+{"type":"response.function_call.arguments.delta","item_id":"fc_c","call_id":"call_ccc","delta":"{\"path\":\"/tmp/x.txt\",\"text\":\"hello\"}"}
+{"type":"response.function_call.completed","item_id":"fc_a","call_id":"call_aaa"}
+{"type":"response.function_call.completed","item_id":"fc_b","call_id":"call_bbb"}
+{"type":"response.function_call.completed","item_id":"fc_c","call_id":"call_ccc"}
+{"type":"response.completed","response":{"id":"resp_par001","status":"completed","usage":{"input_tokens":120,"output_tokens":85}}}

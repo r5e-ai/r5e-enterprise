@@ -1,0 +1,120 @@
+{
+  "group": "core.r5e.io",
+  "kind": "KindDefinition",
+  "version": "v1",
+  "substrate": "resource",
+  "naming": {
+    "mode": "path"
+  },
+  "description": "The meta-Kind: a KindDefinition is itself an admitted artifact. This is the schema-lite v2 definition of what a KindDefinition may declare; its own name is its group/version/kind path.",
+  "schema": {
+    "required": [
+      "group",
+      "kind",
+      "version",
+      "substrate",
+      "naming",
+      "schema",
+      "predicates"
+    ],
+    "nonEmpty": [
+      "group",
+      "kind",
+      "version"
+    ],
+    "properties": {
+      "group": {
+        "type": "string",
+        "pattern": "[a-z0-9.-]+"
+      },
+      "kind": {
+        "type": "string",
+        "pattern": "[A-Za-z][A-Za-z0-9]*"
+      },
+      "version": {
+        "type": "string",
+        "pattern": "v[0-9]+(alpha[0-9]+|beta[0-9]+)?"
+      },
+      "substrate": {
+        "type": "string",
+        "enum": [
+          "artifact",
+          "event",
+          "resource"
+        ]
+      },
+      "naming": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "content",
+              "path",
+              "literal",
+              "derived",
+              "server",
+              "caller"
+            ]
+          },
+          "value": {
+            "type": "string"
+          },
+          "derive": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "schema": {
+        "type": "object"
+      },
+      "epistemicScope": {
+        "type": "object",
+        "properties": {
+          "claims": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "doesNotClaim": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "claims",
+          "doesNotClaim"
+        ],
+        "additionalProperties": false
+      },
+      "description": {
+        "type": "string"
+      },
+      "predicates": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "epistemicScope": {
+    "claims": [
+      "a Kind with this identity, substrate, naming mode and schema was submitted by the recorded actor and admitted at the recorded position on the chain",
+      "subsequent instances of the defined Kind were validated against this schema at admission, under the schema-lite v2 rules"
+    ],
+    "doesNotClaim": [
+      "that the defined Kind's schema is meaningful, complete, or fit for any purpose",
+      "that instances of the defined Kind are correct, or that their content is sound"
+    ]
+  },
+  "predicates": []
+}

@@ -1,0 +1,29 @@
+HTTP/1.1 200 OK
+Date: Wed, 02 Sep 2026 17:42:57 GMT
+Content-Type: text/event-stream; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+Cache-Control: no-cache
+anthropic-ratelimit-unified-status: allowed
+anthropic-ratelimit-unified-5h-status: allowed
+anthropic-ratelimit-unified-5h-reset: 1788376800
+anthropic-ratelimit-unified-5h-utilization: 0.32
+anthropic-ratelimit-unified-7d-status: allowed
+anthropic-ratelimit-unified-7d-reset: 1788562800
+anthropic-ratelimit-unified-7d-utilization: 0.16
+anthropic-ratelimit-unified-representative-claim: five_hour
+anthropic-ratelimit-unified-fallback-percentage: 0.5
+anthropic-ratelimit-unified-reset: 1788376800
+anthropic-ratelimit-unified-overage-disabled-reason: out_of_credits
+anthropic-ratelimit-unified-overage-status: rejected
+request-id: req_011Cef2Uocb2tNPgPqmjRKhf
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+anthropic-organization-id: 00000000-0000-0000-0000-000000000000
+anthropic-workspace-id: wrkspc_REDACTED
+traceresponse: 00-af72015a22df4cb1fa465fb19f226fe9-3ca2cafb9a344dac-01
+Server: cloudflare
+Content-Security-Policy: default-src 'none'; frame-ancestors 'none'
+vary: Accept-Encoding
+cf-cache-status: DYNAMIC
+X-Robots-Tag: none
+CF-RAY: a34e506a28f9767e-SEA

@@ -1,0 +1,4 @@
+# Bind-mount target for the mock HEC container (docker-compose.test.yaml).
+# The mock-hec service truncates `events.ndjson` on start and appends one
+# NDJSON line per event received. The US4 integration test reads this file
+# to validate the SIEM forwarder output.

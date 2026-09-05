@@ -1,0 +1,24 @@
+The KindDefinition JSON files in this directory are protocol surface: they are
+the wire shape a second implementation must match, so they are licensed
+Apache-2.0 and not under the AGPL that covers the rest of r5e-enterprise. The
+prose protocol they belong to is in r5e-core, under the same license.
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   Licensed under the Apache License, Version 2.0 (the "License"); you may not
+   use these files except in compliance with the License. You may obtain a
+   copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+   License for the specific language governing permissions and limitations
+   under the License.
+
+   The complete license text is at the URL above and in r5e-core/LICENSE.
+
+   Copyright (c) 2026 r5e Inc.

@@ -1,0 +1,35 @@
+# Spec 010 — review round 2 synthesis
+
+**Inputs**: `review-round-1.md` (Opus, on the first draft; all ten majors applied in r1) and `review-round-1-codex.md` (Codex/Sol, on r1). **Synthesis**: Fable, 2026-09-02. Disposition: **applied** (changed the spec in r2), **slated** (accepted; a prerequisite slice elsewhere), **declined** (with reason), **narrowed** (accepted in part).
+
+## Codex major findings
+
+| # | Finding | Disposition |
+|---|---|---|
+| S1 | A policy engine evaluating a ToolCall cannot reach model, prompt, session, or principal claims through the `llmCall` ref; real Cedar rules ("deny shell for model X") are unwritable. Story 4 loses audit fields (provider, transport, api format, reasoning tokens, upstream status, latency breakdown). | **applied**: PolicyShape paths may traverse one `event:` hop (`llmCall.spec.model`); the engine resolves the hop from the chain. Optional `responsePrefixRef` on ToolCall. `LlmCall` gains `provider`, `transport`, `apiFormat`; `LlmResponse` gains `upstreamStatus`, `errorKind`, `usage.reasoningTokens`, `latency{upstreamMs, addedMs}`. A mapping table from enterprise fields lists every dropped field by name. |
+| S2 | Citing bundle + shape does not reconstruct the Cedar request (principal derivation, entity attrs, null stripping, engine build). | **applied**: the engine PUTs the exact canonical request + entities JSON it evaluated to the CAS and cites `request` (address) and `engineVersion` in policy metadata; the export sweep carries it; an auditor can replay. |
+| S3 | A `sha256:` ref can point at an object of the wrong Kind (a PolicyBundle spec as `prompt`) and verify clean; name refs unchecked. | **applied** + **slated** KP-8: refs are typed in the schema (`ref: {kind, substrate}` or `ref: bytes`); the kernel resolves every ref at admission (existence, Kind, substrate, lower seq for events) and records the resolved addresses of name refs under a kernel-written `resolvedRefs` key in the payload; the verifier checks the same. Not deferred to v1alpha2. |
+| S4 | authorize → append is not atomic; a concurrent supersession of `PolicyBundle/active` lets a later receipt cite an older bundle. | **slated** KP-9: admission is serialized on the node (one lock around authorize → record → admit). Cheap; correctness over throughput at this stage. |
+| S5 | Story 1 promises "who acted" with an asserted actor. | **narrowed**: Story 1 now claims a verifiable *record* of asserted acts; identity (actor signatures, endorsements) is named as the prerequisite for the "who" and "under whose authority" claims; the identity slice is listed as a dependency of SC-001's stronger form. |
+| S6 | AgentSession + parent + purpose creates a cross-event actor profile before authority exists; read symmetry is a conformance condition, not a deployment concern. | **narrowed**: read symmetry promoted to FR-018 (a deployment that adds a read surface must make every operator read mirrorable by the subject); structure-leakage statement expanded; the kernel already correlates by actor on every event, so the group adds session grouping, not a new person-level index. Per-session unlinkable handles are spec/03 recourse-credential territory: deferred, named. |
+| S7 | Detachment is selective: policy source inline, args/results inline legal. | **declined for PolicyBundle** (policy text is the rule of record; the charter wants it open and never erased; it is not subject content) and **narrowed for args/results**: exactly one of inline or ref (S8); inline is legal for non-sensitive data and cannot be erased, stated; an operator policy may forbid inline by rule. |
+| S8 | Invariants exceed the validator (args XOR argsRef, llmCall ⇒ index, nested values, patterns). | **applied** + **slated** KP-7 broadened to schema-lite v2: `enum`, `exactlyOne`, `requires`, `pattern`, `ref` typing, nested value types. `LlmResponse.toolCalls` required (may be `[]`). The nine seed schemas become part of the reviewed contract (`kinds/*.json` beside this spec). |
+| S9 | Unnamed AgentSessions collide by content name; a PolicyShape under the wrong name is admitted and never selected. | **applied**: `AgentSession` must be admitted with a caller-chosen name (KindDefinition declares `naming: required`, KP-10); the fold denies a PolicyShape whose name differs from the derived `<engine>.<kind path>`. |
+| S10 | Consumer boot check accepts breaking schema changes; discovery returned a normalized form. | **applied**: KP-4 landed (`GET /apis` carries `specAddress`; single-instance GET returns the admitted spec). FR-013 now pins the properties the consumer uses (name → type/ref), and discovery returns the chain position it was read at (`treeSize`, `chainHead`). |
+| S11 | No admitted natlang lineage; KP-5's `description` does not make three CAS artifacts. | **applied** + **slated** KP-5 expanded: `description` and `derivedFrom` (a `sha256:` ref to the admitted natlang document) on KindDefinition, carried by export and printed by the verifier. This spec, once reviewed, is PUT to the CAS and every KindDefinition cites it. |
+
+## Codex minor findings
+
+Applied: "eight Kinds" → nine in the stance; Story 1 counts (six admissions + one denial); `policy:` line citing shape and request is in KP-3's scope; `toolCalls` required; `size` removed (returned by `PUT /cas`, derivable); `mediaType` absence rule stated (absent = `text/plain` by read convention, not stored); `upstreamStatus` integer + `errorKind` string; `argsRef`/`resultRef` point at canonical JSON bytes (`application/json`, kernel canonical encoding) unless `argsMediaType`/`resultMediaType` says otherwise; path grammar defined; specific shape precedes `*`; FR-015 "first wins" replaced by an explicit `supersedes` ref; positional Cedar ids are stable per bundle address (a new bundle is a new address), stated; SC-007 clarified (deletion before export → `missingObjects`; deletion inside an export → `refs:` finding).
+
+## Codex contradictions
+
+C1 callers-write-names → resolved by KP-8 (resolve at admission, persist resolved addresses). C2 detached payloads → PolicyBundle inline by design (stated with reason); args/results one-of. C3 authored scopes vs stance → the stance doc is amended (our Kinds author; third parties default). C4 shape on KindDefinition vs resource → the plan doc's deferred item 4 is amended. C5 natlang lineage → KP-5 `derivedFrom`. C6 authority in the record → Story 1 narrowed; identity slice named. C7 read symmetry → FR-018.
+
+## Not broken (both reviewers)
+
+Backward-ref order with `LlmResponse` as the closing event; deterministic addresses; denials as receipts; supersession as activation (sequentially); content naming for artifacts; the substrate placement of events and policy resources; fail-closed behavior.
+
+## Termination signal
+
+Round 1 (Opus) produced ten structural findings; round 1b (Codex, on r1) produced eleven, of which four are new structural points (S1, S2, S4, S9) and the rest sharpen r1's. Round 2 should be run on r2 with both models. If round 2 returns mostly minors, the spec is ready for the plan stage (the nine seed schemas + the KP slices).

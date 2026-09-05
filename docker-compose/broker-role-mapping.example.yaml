@@ -1,0 +1,44 @@
+# Standalone Identity Broker — role-mapping reference (F002 T010).
+# -----------------------------------------------------------------
+# Schema: specs/002-standalone-gateway-vertical-slice/contracts/recurse_broker_api.md
+#         `broker-role-mapping.yaml schema` section.
+#
+# SEMANTICS
+# ---------
+# The broker receives the customer OIDC `id_token`, validates it, and maps the
+# authenticated principal's groups (from the `groups` claim) to exactly one
+# Recurse role. The mapping is "highest-privilege-wins": if a user belongs to
+# multiple groups with different mapped roles, the role order
+#
+#     platform_operator > tenant_auditor > caller
+#
+# determines the winner.
+#
+# Only these three role strings are valid. Any other value fails broker boot.
+# Duplicate group keys also fail boot.
+#
+# When the user's groups claim produces zero matches, `default_recurse_role`
+# is granted. Set it to `null` to REJECT unmatched users (broker responds
+# 403 `unauthorized_client`) instead of granting a default.
+#
+# Per-issuer OIDC config is OPTIONAL; include only when running a multi-IdP
+# deployment (uncommon in F002). Single-issuer deployments can omit `issuers:`
+# and configure the issuer via the `BROKER_OIDC_ISSUERS` env var instead.
+
+group_to_recurse_role:
+  "cn=recurse-operators,ou=groups,dc=corp,dc=example": platform_operator
+  "cn=recurse-auditors,ou=groups,dc=corp,dc=example": tenant_auditor
+  "cn=recurse-users,ou=groups,dc=corp,dc=example": caller
+
+# Fallback when no mapping matched (or the `groups` claim is absent). Set to
+# `null` to reject unmatched users with 403 `unauthorized_client`.
+default_recurse_role: caller
+
+# Per-issuer OIDC config. Omit the whole section for single-issuer deployments.
+issuers:
+  - url: "https://your-tenant.okta.com"
+    allowed_audiences:
+      - "corp-sso-client"
+    alg_allowlist:
+      - "RS256"
+      - "ES256"

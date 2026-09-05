@@ -1,0 +1,92 @@
+# .dockerignore for the WIDENED fold build context (spec 012 S9a).
+#
+# Copy this file to the ROOT of the context directory — the parent that
+# holds r5e-enterprise/, r5e-kernel/ and r5e-core/ side by side — as
+# `.dockerignore`. The legacy builder reads only that one file; a
+# per-Dockerfile `Dockerfile.fold.dockerignore` needs BuildKit, which the
+# quickstart does not assume (Dockerfile header). Paths are relative to
+# the context root.
+#
+# Everything is excluded, then the three trees the build needs are let
+# back in, minus their build artifacts, state, secrets and VCS metadata.
+# This is the public .dockerignore under an `r5e-enterprise/` prefix, with
+# one deliberate difference: apps/recurse_fold/ is IN.
+#
+# R4-F6 (RC review 2026-09-05): what is excluded here is **artifacts and
+# state only**, never tracked source. The build now recomputes the three
+# `archiveSha256` values in `repos.lock.json` from the context itself
+# (`scripts/verify-source-archive.py`, the `verify-sources` stage in the
+# Dockerfile), so the manifest is a check rather than a label — and that
+# check can only pass if the context carries exactly the trees the
+# manifest hashes. Excluding `docs/`, `specs/`, `.specify/` or the
+# kernel's `test/` here would make every build fail with three mismatched
+# hashes. When the context is a frozen release context (the ordinary
+# case) it *is* the extracted archive and holds none of the artifacts
+# below; the exclusions below matter for a widened context over live
+# checkouts, where they keep `_build`, `deps` and keys out.
+
+*
+!r5e-enterprise
+!r5e-kernel
+!r5e-core
+!r5e-core/verifier
+!r5e-core/LICENSE
+!r5e-core/LICENSE.md
+!repos.lock.json
+
+# --- r5e-enterprise: the public .dockerignore, prefixed -----------------
+r5e-enterprise/_build
+r5e-enterprise/deps
+r5e-enterprise/cover
+r5e-enterprise/doc
+r5e-enterprise/**/*.beam
+r5e-enterprise/**/erl_crash.dump
+r5e-enterprise/.git
+r5e-enterprise/.jj
+r5e-enterprise/.env
+r5e-enterprise/.env.*
+# `.env.example` is tracked, published, and part of the hashed tree.
+!r5e-enterprise/.env.example
+r5e-enterprise/**/*.pem
+r5e-enterprise/**/*.key
+r5e-enterprise/secrets
+r5e-enterprise/.envrc
+r5e-enterprise/.envrc.local
+r5e-enterprise/**/*.log
+r5e-enterprise/.giulia
+r5e-enterprise/.r5e
+# `.claude/` and `.codex/` are agent working state and are excluded from
+# the public tree by `scripts/prepare-release.py`, so a release context
+# never carries them; the lines stay for the live-checkout case.
+r5e-enterprise/.claude
+r5e-enterprise/.codex
+r5e-enterprise/local-gan-runs
+r5e-enterprise/tmp-gan
+r5e-enterprise/**/__pycache__
+r5e-enterprise/native/*/target
+r5e-enterprise/node_modules
+r5e-enterprise/ui/node_modules
+r5e-enterprise/ui/dist
+r5e-enterprise/ui/.vite
+r5e-enterprise/ui/coverage
+r5e-enterprise/ui/playwright-report
+r5e-enterprise/ui/test-results
+# The fold's own throwaway kernel state (dev / demo runs).
+r5e-enterprise/apps/recurse_fold/.r5e-*
+r5e-enterprise/apps/recurse_fold/fold-demo-verification.txt
+# --- r5e-kernel ---------------------------------------------------------
+r5e-kernel/_build
+r5e-kernel/deps
+r5e-kernel/.git
+r5e-kernel/.jj
+# Every kernel data dir, the live genesis chain first among them.
+r5e-kernel/.r5e
+r5e-kernel/.r5e.*
+r5e-kernel/.r5e-*
+r5e-kernel/erl_crash.dump
+
+# --- r5e-core/verifier --------------------------------------------------
+r5e-core/verifier/_build
+r5e-core/verifier/deps
+r5e-core/verifier/recurse_verify
+r5e-core/verifier/erl_crash.dump

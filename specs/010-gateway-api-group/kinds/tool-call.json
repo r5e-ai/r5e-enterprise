@@ -1,0 +1,183 @@
+{
+  "group": "gateway.r5e.io",
+  "kind": "ToolCall",
+  "version": "v1alpha1",
+  "substrate": "event",
+  "naming": {
+    "mode": "content"
+  },
+  "description": "The recorded actor asked to invoke a tool with these arguments (inline, possibly empty, or detached at argsRef); policy decided at admission, and a denial is as fully recorded as an admission.",
+  "schema": {
+    "required": [
+      "tool"
+    ],
+    "properties": {
+      "tool": {
+        "type": "string"
+      },
+      "args": {
+        "type": "object"
+      },
+      "argsRef": {
+        "type": "ref",
+        "ref": {
+          "bytes": true,
+          "json": {
+            "type": "object"
+          }
+        }
+      },
+      "argsMediaType": {
+        "type": "string"
+      },
+      "llmCall": {
+        "type": "ref",
+        "ref": {
+          "event": "gateway.r5e.io/v1alpha1/LlmCall",
+          "outcome": "admitted"
+        }
+      },
+      "index": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "responsePrefixRef": {
+        "type": "ref",
+        "ref": {
+          "bytes": true
+        }
+      },
+      "callId": {
+        "type": "string"
+      },
+      "session": {
+        "type": "ref",
+        "ref": {
+          "kind": "gateway.r5e.io/v1alpha1/AgentSession"
+        }
+      },
+      "purpose": {
+        "type": "string"
+      },
+      "extractedAt": {
+        "type": "string"
+      },
+      "gatewayContext": {
+        "type": "object",
+        "properties": {
+          "principal_id": {
+            "type": "string"
+          },
+          "principal_kind": {
+            "type": "string"
+          },
+          "principal_source": {
+            "type": "string"
+          },
+          "chatgpt_account_id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "prompt_hash": {
+            "type": "string"
+          },
+          "response_so_far_hash": {
+            "type": "string"
+          },
+          "cedar_bundle_hash": {
+            "type": "string"
+          },
+          "upstream_domain": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "tool_args_hash": {
+            "type": "string"
+          },
+          "estimated_completion_tokens": {
+            "type": "integer"
+          },
+          "parallel_tool_call_index": {
+            "type": "integer"
+          },
+          "tool_args_size_bytes": {
+            "type": "integer"
+          },
+          "principal_groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "opening_model_policy_hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal_id",
+          "principal_kind",
+          "tenant",
+          "model"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false,
+    "nonEmpty": [
+      "tool"
+    ],
+    "exactlyOne": [
+      [
+        "args",
+        "argsRef"
+      ]
+    ],
+    "requires": [
+      {
+        "when": {
+          "present": "llmCall"
+        },
+        "then": [
+          "index"
+        ]
+      },
+      {
+        "when": {
+          "present": "argsMediaType"
+        },
+        "then": [
+          "argsRef"
+        ]
+      }
+    ]
+  },
+  "epistemicScope": {
+    "claims": [
+      "the recorded actor asked to invoke `tool` with these arguments, at the recorded position on the chain",
+      "the policy bundle, source, and evaluation record cited on this receipt \u2014 and the shape when one was in force \u2014 produced the recorded outcome at admission, before any substrate write",
+      "a denial is as fully recorded as an admission \u2014 asking is itself an act",
+      "the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain \u2014 both re-derivable offline from the bundle alone"
+    ],
+    "doesNotClaim": [
+      "that the tool ran",
+      "that the tool ran with these arguments, or produced any particular result",
+      "that any person, office, or organization holds the key that signed \u2014 the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin",
+      "that anything outside this kernel honored the recorded decision",
+      "that gatewayContext client identity or groups were cryptographically authenticated; these are observations signed by the gateway service, distinct from the admission signer"
+    ]
+  },
+  "predicates": []
+}

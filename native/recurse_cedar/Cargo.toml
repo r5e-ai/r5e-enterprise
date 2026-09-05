@@ -1,0 +1,41 @@
+# Rustler NIF for Cedar policy evaluation (FR-039, Deliverable O).
+#
+# Content-addressed Cedar pin per research D2:
+#   - cedar_version:      "4.9.1"
+#   - cedar_crate_digest: resolved via Cargo.lock checksum field (SHA-256 of source tarball)
+#   - cedar_fixture_hash: locked in priv/test_fixtures/cedar_stability/ and asserted by
+#                         `mix recurse.cedar.stability_check` in CI (T045)
+#
+# Do NOT bump `cedar-policy` without re-baking the stability fixture (T044) and documenting
+# the transition in T091 (cedar_pin.md). The three components MUST advance lockstep.
+
+[package]
+name = "recurse_cedar"
+version = "0.1.0"
+edition = "2021"
+authors = ["Recurse Engineering"]
+# This crate is r5e-enterprise code, not protocol surface: it takes the
+# repository licence. The protocol is Apache-2.0 and lives in r5e-core.
+license = "AGPL-3.0-only"
+publish = false
+description = "Rustler NIF exposing Cedar policy evaluation + JCS canonical-hash to the BEAM"
+
+[lib]
+name = "recurse_cedar"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.37"
+# Cedar — three-component pin per research D2 / FR-039. Update `cedar_version` in Tier
+# Configuration + re-bake stability fixture (T044) when bumping this line.
+cedar-policy = "=4.9.1"
+# JCS canonicalization (RFC 8785) for policy_canonical_hash per FR-021 / FR-039.
+serde_jcs = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[profile.release]
+lto = true
+codegen-units = 1

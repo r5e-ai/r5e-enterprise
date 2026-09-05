@@ -1,0 +1,261 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-04-30T00:00:00Z",
+  "description": "Recurse Trusted MCP Registry — curated catalog of MCP servers approved for use behind the Recurse Gateway. Phase-1 single-tenant static catalog; Phase-2+ becomes per-tenant dynamic with SBOM digital-signing chain (CycloneDX + in-toto attestations).",
+  "entries": [
+    {
+      "id": "r5e-audit-mcp",
+      "name": "Recurse Audit MCP",
+      "description": "Hosted MCP server exposing the Recurse audit plane as MCP tools. Lets agents query receipts, verify cryptographic chains, and search attestations through a uniform tool interface backed by the same DSSE/RFC-9162 infrastructure as the Audit Console.",
+      "source": "gitlab.com/r5e-group/r5e-enterprise/apps/recurse_gateway/lib/recurse_gateway/data_plane/mcp_server_handler.ex",
+      "version": "0.1.0-demo",
+      "transport": "http",
+      "trust_tier": "verified",
+      "publisher": "r5e-group",
+      "capabilities": {
+        "tools": [
+          {
+            "name": "r5e.audit.list_receipts",
+            "description": "List recent attestations with optional filters (event_kind, principal_subject, time window).",
+            "input_schema_ref": "tools/list_receipts.json"
+          },
+          {
+            "name": "r5e.audit.verify_receipt",
+            "description": "Run the 5-check cryptographic verification pipeline against a single receipt by run_id.",
+            "input_schema_ref": "tools/verify_receipt.json"
+          },
+          {
+            "name": "r5e.audit.query_attestations",
+            "description": "Free-text search over attestation metadata.",
+            "input_schema_ref": "tools/query_attestations.json"
+          }
+        ]
+      },
+      "policy_constraints": {
+        "cedar_policies": [
+          "permit(principal, action == Recurse::Action::McpToolCall, resource) when { resource.mcp_server == \"r5e-audit-mcp\" && resource.trust_tier == \"verified\" };"
+        ],
+        "rate_limit_per_minute": 60
+      },
+      "sbom": {
+        "format": "cyclonedx-1.5-subset",
+        "digest": "sha256:demo-r5e-audit-sbom-digest-placeholder",
+        "components": [
+          {
+            "name": "elixir",
+            "version": "1.18.1",
+            "license": "Apache-2.0",
+            "purl": "pkg:hex/elixir@1.18.1",
+            "vulnerabilities": []
+          },
+          {
+            "name": "plug_cowboy",
+            "version": "2.7.4",
+            "license": "Apache-2.0",
+            "purl": "pkg:hex/plug_cowboy@2.7.4",
+            "vulnerabilities": []
+          },
+          {
+            "name": "jason",
+            "version": "1.4.4",
+            "license": "Apache-2.0",
+            "purl": "pkg:hex/jason@1.4.4",
+            "vulnerabilities": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "filesystem-mcp",
+      "name": "Filesystem MCP",
+      "description": "Reference MCP server providing read/write access to a sandboxed local filesystem. Curated import from the public Anthropic MCP servers reference set.",
+      "source": "github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "version": "0.6.2",
+      "transport": "stdio",
+      "trust_tier": "community",
+      "publisher": "modelcontextprotocol",
+      "capabilities": {
+        "tools": [
+          { "name": "read_file", "description": "Read a file's contents." },
+          { "name": "write_file", "description": "Write or overwrite a file." },
+          { "name": "list_directory", "description": "List files in a directory." }
+        ]
+      },
+      "policy_constraints": {
+        "cedar_policies": [
+          "permit(principal, action == Recurse::Action::McpToolCall, resource) when { resource.mcp_server == \"filesystem-mcp\" && principal.role in [\"operator\", \"developer\"] };"
+        ],
+        "rate_limit_per_minute": 30
+      },
+      "sbom": {
+        "format": "cyclonedx-1.5-subset",
+        "digest": "sha256:demo-filesystem-mcp-sbom-digest-placeholder",
+        "components": [
+          {
+            "name": "@modelcontextprotocol/sdk",
+            "version": "1.0.4",
+            "license": "MIT",
+            "purl": "pkg:npm/%40modelcontextprotocol/sdk@1.0.4",
+            "vulnerabilities": []
+          },
+          {
+            "name": "node",
+            "version": "20.11.0",
+            "license": "MIT",
+            "purl": "pkg:generic/node@20.11.0",
+            "vulnerabilities": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "github-issues-mcp",
+      "name": "GitHub Issues MCP",
+      "description": "MCP server for searching, creating, and commenting on GitHub issues. Useful for triage agents.",
+      "source": "github.com/example-org/github-issues-mcp",
+      "version": "1.2.3",
+      "transport": "http",
+      "trust_tier": "community",
+      "publisher": "example-org",
+      "capabilities": {
+        "tools": [
+          { "name": "search_issues", "description": "Search for issues by query." },
+          { "name": "create_issue", "description": "Create a new issue." },
+          { "name": "add_comment", "description": "Comment on an existing issue." }
+        ]
+      },
+      "policy_constraints": {
+        "cedar_policies": [
+          "permit(principal, action == Recurse::Action::McpToolCall, resource) when { resource.mcp_server == \"github-issues-mcp\" && principal.role == \"developer\" };"
+        ],
+        "rate_limit_per_minute": 20
+      },
+      "sbom": {
+        "format": "cyclonedx-1.5-subset",
+        "digest": "sha256:demo-github-issues-mcp-sbom-digest-placeholder",
+        "components": [
+          {
+            "name": "@octokit/rest",
+            "version": "20.0.2",
+            "license": "MIT",
+            "purl": "pkg:npm/%40octokit/rest@20.0.2",
+            "vulnerabilities": []
+          },
+          {
+            "name": "@modelcontextprotocol/sdk",
+            "version": "0.5.0",
+            "license": "MIT",
+            "purl": "pkg:npm/%40modelcontextprotocol/sdk@0.5.0",
+            "vulnerabilities": [
+              {
+                "id": "GHSA-mcp-demo-0001",
+                "source": "github-advisories",
+                "severity": "medium",
+                "summary": "Older MCP SDK leaks request bodies into stderr at trace log level. Upgrade to >=1.0.0.",
+                "fixed_versions": [">=1.0.0"]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "search-mcp",
+      "name": "Web Search MCP",
+      "description": "MCP server providing web search via a third-party search API. Egress-gated by Recurse Gateway egress rules.",
+      "source": "github.com/example-org/search-mcp",
+      "version": "0.9.1",
+      "transport": "http",
+      "trust_tier": "community",
+      "publisher": "example-org",
+      "capabilities": {
+        "tools": [
+          { "name": "web_search", "description": "Free-text web search." }
+        ]
+      },
+      "policy_constraints": {
+        "cedar_policies": [
+          "permit(principal, action == Recurse::Action::McpToolCall, resource) when { resource.mcp_server == \"search-mcp\" };"
+        ],
+        "rate_limit_per_minute": 60
+      },
+      "sbom": {
+        "format": "cyclonedx-1.5-subset",
+        "digest": "sha256:demo-search-mcp-sbom-digest-placeholder",
+        "components": [
+          {
+            "name": "axios",
+            "version": "1.6.7",
+            "license": "MIT",
+            "purl": "pkg:npm/axios@1.6.7",
+            "vulnerabilities": []
+          },
+          {
+            "name": "@modelcontextprotocol/sdk",
+            "version": "1.0.4",
+            "license": "MIT",
+            "purl": "pkg:npm/%40modelcontextprotocol/sdk@1.0.4",
+            "vulnerabilities": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "legacy-pdf-mcp",
+      "name": "Legacy PDF MCP",
+      "description": "Quarantined: outdated PDF rendering MCP server with known critical CVE in upstream pdfjs dependency. Listed for visibility; tool calls are policy-denied at the Gateway.",
+      "source": "github.com/example-org/legacy-pdf-mcp",
+      "version": "0.3.0",
+      "transport": "stdio",
+      "trust_tier": "quarantined",
+      "publisher": "example-org",
+      "capabilities": {
+        "tools": [
+          { "name": "render_pdf", "description": "Render a PDF page to PNG." }
+        ]
+      },
+      "policy_constraints": {
+        "cedar_policies": [
+          "forbid(principal, action == Recurse::Action::McpToolCall, resource) when { resource.mcp_server == \"legacy-pdf-mcp\" };"
+        ],
+        "rate_limit_per_minute": 0
+      },
+      "sbom": {
+        "format": "cyclonedx-1.5-subset",
+        "digest": "sha256:demo-legacy-pdf-mcp-sbom-digest-placeholder",
+        "components": [
+          {
+            "name": "pdfjs-dist",
+            "version": "2.5.207",
+            "license": "Apache-2.0",
+            "purl": "pkg:npm/pdfjs-dist@2.5.207",
+            "vulnerabilities": [
+              {
+                "id": "CVE-2024-4367",
+                "source": "nvd",
+                "severity": "high",
+                "summary": "PDF.js arbitrary JavaScript execution via crafted PDF (font rendering pipeline). Affects pdfjs-dist <4.2.67.",
+                "fixed_versions": [">=4.2.67"]
+              }
+            ]
+          },
+          {
+            "name": "@modelcontextprotocol/sdk",
+            "version": "0.4.1",
+            "license": "MIT",
+            "purl": "pkg:npm/%40modelcontextprotocol/sdk@0.4.1",
+            "vulnerabilities": [
+              {
+                "id": "GHSA-mcp-demo-0001",
+                "source": "github-advisories",
+                "severity": "medium",
+                "summary": "Older MCP SDK leaks request bodies into stderr at trace log level. Upgrade to >=1.0.0.",
+                "fixed_versions": [">=1.0.0"]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

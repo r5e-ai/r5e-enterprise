@@ -1,0 +1,30 @@
+# Isolated release-image acceptance overlay. Run only through
+# scripts/smoke-release-compose.sh, which supplies unique names and ports.
+services:
+  postgres:
+    container_name: "${R5E_SMOKE_POSTGRES_CONTAINER:?set by smoke-release-compose.sh}"
+    restart: "no"
+
+  gateway:
+    container_name: "${R5E_SMOKE_GATEWAY_CONTAINER:?set by smoke-release-compose.sh}"
+    env_file: !override
+      - "${R5E_SMOKE_ENV_FILE:?set by smoke-release-compose.sh}"
+    environment:
+      R5E_PUBLIC_HOSTNAME: "http://localhost:${R5E_SMOKE_GATEWAY_PORT:?set by smoke-release-compose.sh}"
+      R5E_TENANT_ID: "01TEN_RELEASE_SMOKE"
+      R5E_LLM_PROXY_DEFAULT_TENANT_ID: "01TEN_RELEASE_SMOKE"
+      R5E_LLM_PROXY_DEFAULT_UPSTREAM_HOST: host.docker.internal
+      R5E_SMOKE_PROVIDER_HOST: host.docker.internal
+      R5E_SMOKE_PROVIDER_PORT: "${R5E_SMOKE_PROVIDER_PORT:?set by smoke-release-compose.sh}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports: !override
+      - "127.0.0.1:${R5E_SMOKE_GATEWAY_PORT}:4000"
+      - "127.0.0.1:${R5E_SMOKE_PROXY_PORT:?set by smoke-release-compose.sh}:4443"
+    volumes: !override
+      - secrets:/secrets
+      - cas:/data/cas
+      - kernel:/data/kernel
+      - policy:/policy
+      - "${R5E_SMOKE_POLICY_DIR:?set by smoke-release-compose.sh}:/policy-default:ro"
+    restart: "no"

@@ -1,0 +1,135 @@
+# Recurse Standalone AI Gateway — test overlay (F002 T070).
+#
+# Usage:
+#
+#   docker compose \
+#     -f docker-compose.yaml \
+#     -f docker-compose.test.yaml \
+#     up -d
+#
+# This overlay adapts the reference stack for the US4 integration test:
+#
+#   1. Adds a `mock-hec` sidecar — tiny Python HTTP server that accepts
+#      Splunk-HEC-shaped POSTs on :8088 and persists each line of the
+#      received NDJSON to /var/hec/events.ndjson (bind-mounted to
+#      `./test/integration/hec_events/` on the host).
+#
+#   2. Substitutes the Vector config with `vector.test.toml` — the
+#      reference config with the Splunk-HEC sink uncommented and pointed
+#      at `http://mock-hec:8088` (no TLS, no auth — this is a mock).
+#
+#   3. Substitutes the Gateway's LLM provider with a stub upstream that
+#      returns a deterministic OpenAI-shaped response, via the
+#      `GATEWAY_LLM_PROVIDER` env var. This avoids burning real OpenAI
+#      credits during CI; the LLMProvider behaviour is exercised via
+#      contract tests separately (F002 Phase 3 Wave 3C).
+#
+# The overlay does NOT redeclare the `networks:` block — compose merges
+# overlay services into the base `recurse_net` automatically.
+#
+# Nothing in this file ships to customers. The only file shipped is the
+# commented reference `docker-compose/vector.toml` + the main
+# `docker-compose.yaml`.
+
+services:
+  recurse-gateway:
+    environment:
+      # Swap the real OpenAI/Anthropic/etc. LLM provider for a stub that
+      # returns a canned response. The stub module lives in
+      # `apps/recurse_gateway/test/support/stub_llm_provider.ex` and is
+      # compiled into the release image when MIX_ENV=test. For CI runs
+      # that build a dev image, the stub's return shape is documented in
+      # `specs/002-standalone-gateway-vertical-slice/contracts/llm_provider_impls.md`.
+      # Module names below reference test-only stubs compiled under
+      # `apps/recurse_gateway/test/support/` and `apps/recurse_providers/test/support/`.
+      # These stubs are only available in a MIX_ENV=test image. The
+      # reference Dockerfile builds MIX_ENV=prod releases, so running this
+      # test overlay requires a separate test-image build (tracked under
+      # F002 CI setup; the shipped release image does NOT carry stubs).
+      # See test/integration/us4_vector_forwarder_test.sh for the current
+      # status + CI gating.
+      GATEWAY_LLM_PROVIDER: "Recurse.Providers.Support.MockLLMProvider"
+      GATEWAY_SECRETS_PROVIDER: "Recurse.Gateway.Test.StubSecretsProvider"
+
+  vector:
+    volumes:
+      # Bind-mount the TEST vector config over the reference one. The
+      # file at docker-compose/vector.test.toml uncomments the Splunk
+      # HEC sink and points it at the mock-hec container.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker-compose/vector.test.toml:/etc/vector/vector.toml:ro
+      - vector_data:/var/lib/vector
+    depends_on:
+      - recurse-gateway
+      - mock-hec
+
+  mock-hec:
+    image: python:3.12-alpine
+    container_name: recurse-mock-hec
+    # Tiny HTTP server that accepts Splunk-HEC-shaped POSTs on :8088
+    # and appends each NDJSON line in the `event` field (or raw body)
+    # to /var/hec/events.ndjson. We run Python inline rather than
+    # shipping a separate Dockerfile — this image is single-purpose and
+    # only used in the test overlay.
+    command:
+      - "python"
+      - "-c"
+      - |
+        import http.server, json, os, sys
+        OUT = "/var/hec/events.ndjson"
+        os.makedirs("/var/hec", exist_ok=True)
+        open(OUT, "w").close()  # truncate on start
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(n).decode("utf-8", "replace")
+                # Splunk HEC /services/collector accepts either one JSON
+                # object per request ({"event": ...}) or newline-delimited
+                # JSON. Vector with `encoding.codec = "ndjson"` sends
+                # multiple {"event": <inner>}\n objects. Record the inner
+                # `event` when present; otherwise record the raw line.
+                with open(OUT, "a") as f:
+                    for line in body.splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                            inner = obj.get("event", obj)
+                            f.write(json.dumps(inner) + "\n")
+                        except json.JSONDecodeError:
+                            f.write(line + "\n")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"text":"Success","code":0}')
+
+            def do_GET(self):
+                # Health endpoint for the compose healthcheck.
+                if self.path == "/services/collector/health":
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b'{"text":"HEC is healthy","code":17}')
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def log_message(self, *a, **kw):
+                # Silence default access logs — they clutter test output.
+                return
+
+        http.server.HTTPServer(("0.0.0.0", 8088), Handler).serve_forever()
+    ports:
+      - "18088:8088"
+    volumes:
+      - ./test/integration/hec_events:/var/hec
+    networks:
+      - recurse_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8088/services/collector/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped

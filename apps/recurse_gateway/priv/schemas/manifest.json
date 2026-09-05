@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.recurse.dev/r5e-audit-manifest/v1",
+  "x-version": "1.0.0",
+  "version": "1.0.0",
+  "endpoints": [
+    {
+      "path": "/v1/auth/me",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/auth_me.json",
+      "requires_role": ["tenant_auditor", "platform_operator"],
+      "_comment": "Implicit-self action per audit_api_extensions.md §Auth introspection — NO Cedar gate, NO receipt emission. The endpoint introspects the caller's own browser session, which is not a governance-class action. The cedar_action and event_kind fields are intentionally omitted; clients consuming the manifest MUST treat their absence as a signal to skip Cedar pre-checks and skip receipt-correlation expectations. The role allowlist still applies: only authenticated principals carrying tenant_auditor or platform_operator can hit this endpoint at all (BrowserSessionPlug enforces session-bound principal presence)."
+    },
+    {
+      "path": "/v1/audit/sessions/{session_id}",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/session_timeline.json",
+      "requires_role": ["tenant_auditor", "platform_operator"],
+      "cedar_action": "Recurse::Action::\"DashboardQuery\"",
+      "event_kind": "ui_query"
+    },
+    {
+      "path": "/v1/policy/simulate",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_simulate_response.json",
+      "request_schema_uri": "https://gateway.example.com/v1/schemas/policy_simulate_request.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"PolicySimulate\"",
+      "event_kind": "ui_policy_simulate"
+    },
+    {
+      "path": "/v1/policy/replay/{run_id}",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_replay_response.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"PolicyReplay\"",
+      "event_kind": "ui_policy_replay"
+    },
+    {
+      "path": "/v1/policy/drafts",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_draft.json",
+      "request_schema_uri": "https://gateway.example.com/v1/schemas/policy_draft_create_request.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"PolicyDraftCreate\"",
+      "event_kind": "ui_policy_draft_created"
+    },
+    {
+      "path": "/v1/policy/drafts/{id}",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_draft.json",
+      "requires_role": ["tenant_auditor", "platform_operator"],
+      "cedar_action": "Recurse::Action::\"DashboardQuery\"",
+      "event_kind": "ui_query"
+    },
+    {
+      "path": "/v1/policy/drafts/{id}/dry-run",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/blast_radius_summary.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"PolicyDraftDryRun\"",
+      "event_kind": "ui_policy_draft_dry_run"
+    },
+    {
+      "path": "/v1/policy/suggestions",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_suggestion.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"DashboardQuery\"",
+      "event_kind": "ui_query",
+      "_comment": "Task J fix (issue #30): list endpoint runs through DashboardQuery + emits :ui_query (the canonical 'view a list' atom), NOT PolicySuggestionView. The single-fetch endpoint /v1/policy/suggestions/{id} is the one that emits :ui_policy_suggestion_viewed. Code is authoritative — see policy_suggestions_handler.ex list/1 + do_list/2."
+    },
+    {
+      "path": "/v1/policy/suggestions/{id}",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_suggestion.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"PolicySuggestionView\"",
+      "event_kind": "ui_policy_suggestion_viewed"
+    },
+    {
+      "path": "/v1/policy/suggestions/{id}/adopt",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_draft.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"PolicySuggestionAdopt\"",
+      "event_kind": "ui_policy_suggestion_adopted",
+      "_comment": "Adopt creates a PolicyDraft from the suggestion; response body has draft_id + suggestion_id. Handler emits BOTH :ui_policy_suggestion_adopted AND :ui_policy_draft_created per the canonical matrix (see policy_suggestions_handler.ex do_adopt/3); event_kind here documents the primary adopt atom."
+    },
+    {
+      "path": "/v1/policy/suggestions/{id}/dismiss",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_suggestion.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"PolicySuggestionDismiss\"",
+      "event_kind": "ui_policy_suggestion_dismissed"
+    },
+    {
+      "path": "/v1/policy/suggestions/refresh",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/policy_suggestion.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"PolicySuggestionRefresh\"",
+      "event_kind": "ui_policy_suggestion_refresh_requested"
+    },
+    {
+      "path": "/v1/chat/messages",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/chat_message.json",
+      "requires_role": ["tenant_auditor", "platform_operator"],
+      "cedar_action": "Recurse::Action::\"ChatDrawerQuery\"",
+      "event_kind": "ui_chat"
+    },
+    {
+      "path": "/v1/chat/conversations",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/chat_conversation.json",
+      "requires_role": ["tenant_auditor", "platform_operator"],
+      "cedar_action": "Recurse::Action::\"ChatDrawerQuery\"",
+      "event_kind": "ui_query"
+    },
+    {
+      "path": "/v1/chat/conversations/{id}",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/chat_conversation.json",
+      "requires_role": ["tenant_auditor", "platform_operator"],
+      "cedar_action": "Recurse::Action::\"ChatDrawerQuery\"",
+      "event_kind": "ui_query"
+    },
+    {
+      "path": "/v1/mcp/registry",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/mcp_registry_list_response.json",
+      "requires_role": ["tenant_auditor", "platform_operator"],
+      "_comment": "Implicit-self admin-console read of the static trusted MCP registry. No Cedar gate, no receipt emission — read-only catalog inspection. Phase-2+ will add per-tenant registries with Cedar-gated read."
+    },
+    {
+      "path": "/v1/mcp/registry/{id}",
+      "method": "GET",
+      "schema_uri": "https://gateway.example.com/v1/schemas/mcp_registry_entry.json",
+      "requires_role": ["tenant_auditor", "platform_operator"],
+      "_comment": "Implicit-self admin-console read of a single MCP registry entry (SBOM + CVE detail view). Same shape as /v1/mcp/registry — no Cedar gate."
+    },
+    {
+      "path": "/v1/mcp/registry/{id}",
+      "method": "PATCH",
+      "schema_uri": "https://gateway.example.com/v1/schemas/mcp_registry_entry.json",
+      "request_schema_uri": "https://gateway.example.com/v1/schemas/mcp_registry_quarantine_request.json",
+      "requires_role": ["platform_operator"],
+      "cedar_action": "Recurse::Action::\"McpRegistryQuarantine\"",
+      "event_kind": "ui_mcp_quarantine",
+      "_comment": "F7 quarantine workflow — operator-only mutation of an entry's trust_tier. Emits a DSSE-signed :ui_mcp_quarantine ledger receipt BEFORE the response goes out (Principle III); on commit failure the on-disk + cache mutation is rolled back and a 500 is returned. tenant_auditor gets 403."
+    },
+    {
+      "path": "/v1/mcp/{server}/tools/{tool}",
+      "method": "POST",
+      "schema_uri": "https://gateway.example.com/v1/schemas/mcp_tool_call_response.json",
+      "request_schema_uri": "https://gateway.example.com/v1/schemas/mcp_tool_call_request.json",
+      "_comment": "Hosted MCP tool dispatch. Bearer-authenticated (RFC 8693 token-exchanged JWT in production; demo accepts a stub `Bearer demo-mcp-token-*` synthetic token labeled in code). Trust-tier + Cedar gate inside handler; emits :mcp_tool_call attestation per call (allow OR deny — both are attested per Principle III).",
+      "event_kind": "mcp_tool_call"
+    }
+  ],
+  "schemas": [
+    {"name": "attestation", "uri": "https://gateway.example.com/v1/schemas/attestation.json", "version": "0.1.0-placeholder"},
+    {"name": "audit_receipts_list_response", "uri": "https://gateway.example.com/v1/schemas/audit_receipts_list_response.json", "version": "1.0.0"},
+    {"name": "auth_me", "uri": "https://gateway.example.com/v1/schemas/auth_me.json", "version": "1.0.0"},
+    {"name": "blast_radius_summary", "uri": "https://gateway.example.com/v1/schemas/blast_radius_summary.json", "version": "0.1.0-placeholder"},
+    {"name": "chat_conversation", "uri": "https://gateway.example.com/v1/schemas/chat_conversation.json", "version": "0.1.0-placeholder"},
+    {"name": "chat_message", "uri": "https://gateway.example.com/v1/schemas/chat_message.json", "version": "0.1.0-placeholder"},
+    {"name": "error_envelope", "uri": "https://gateway.example.com/v1/schemas/error_envelope.json", "version": "1.0.0"},
+    {"name": "export_request", "uri": "https://gateway.example.com/v1/schemas/export_request.json", "version": "1.0.0"},
+    {"name": "export_response", "uri": "https://gateway.example.com/v1/schemas/export_response.json", "version": "1.0.0"},
+    {"name": "mcp_registry_entry", "uri": "https://gateway.example.com/v1/schemas/mcp_registry_entry.json", "version": "1.0.0"},
+    {"name": "mcp_registry_list_response", "uri": "https://gateway.example.com/v1/schemas/mcp_registry_list_response.json", "version": "1.0.0"},
+    {"name": "mcp_registry_quarantine_request", "uri": "https://gateway.example.com/v1/schemas/mcp_registry_quarantine_request.json", "version": "1.0.0"},
+    {"name": "mcp_tool_call_request", "uri": "https://gateway.example.com/v1/schemas/mcp_tool_call_request.json", "version": "1.0.0"},
+    {"name": "mcp_tool_call_response", "uri": "https://gateway.example.com/v1/schemas/mcp_tool_call_response.json", "version": "1.0.0"},
+    {"name": "policy_draft", "uri": "https://gateway.example.com/v1/schemas/policy_draft.json", "version": "0.1.0-placeholder"},
+    {"name": "policy_draft_create_request", "uri": "https://gateway.example.com/v1/schemas/policy_draft_create_request.json", "version": "0.1.0-placeholder"},
+    {"name": "policy_replay_response", "uri": "https://gateway.example.com/v1/schemas/policy_replay_response.json", "version": "0.1.0-placeholder"},
+    {"name": "policy_simulate_request", "uri": "https://gateway.example.com/v1/schemas/policy_simulate_request.json", "version": "0.1.0-placeholder"},
+    {"name": "policy_simulate_response", "uri": "https://gateway.example.com/v1/schemas/policy_simulate_response.json", "version": "0.1.0-placeholder"},
+    {"name": "policy_suggestion", "uri": "https://gateway.example.com/v1/schemas/policy_suggestion.json", "version": "0.1.0-placeholder"},
+    {"name": "principal", "uri": "https://gateway.example.com/v1/schemas/principal.json", "version": "0.1.0-placeholder"},
+    {"name": "session", "uri": "https://gateway.example.com/v1/schemas/session.json", "version": "0.1.0-placeholder"},
+    {"name": "session_timeline", "uri": "https://gateway.example.com/v1/schemas/session_timeline.json", "version": "0.1.0-placeholder"},
+    {"name": "verify_response", "uri": "https://gateway.example.com/v1/schemas/verify_response.json", "version": "1.0.0"}
+  ],
+  "updated_at": "2026-04-30T00:00:00Z"
+}

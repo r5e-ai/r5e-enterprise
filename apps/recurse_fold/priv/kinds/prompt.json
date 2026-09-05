@@ -1,0 +1,57 @@
+{
+  "group": "gateway.r5e.io",
+  "kind": "Prompt",
+  "version": "v1alpha1",
+  "substrate": "artifact",
+  "naming": {
+    "mode": "content"
+  },
+  "description": "A prompt submitted for sending to a model. The bytes are a detached object at contentRef; the artifact's name is the hash of this spec, so the same bytes recorded with a different mediaType, role, or session are a second artifact citing the same object.",
+  "schema": {
+    "required": [
+      "contentRef"
+    ],
+    "properties": {
+      "contentRef": {
+        "type": "ref",
+        "ref": {
+          "bytes": true
+        }
+      },
+      "mediaType": {
+        "type": "string"
+      },
+      "role": {
+        "type": "string",
+        "enum": [
+          "user",
+          "system",
+          "assistant",
+          "tool"
+        ]
+      },
+      "session": {
+        "type": "ref",
+        "ref": {
+          "kind": "gateway.r5e.io/v1alpha1/AgentSession"
+        }
+      },
+      "observedAt": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  },
+  "epistemicScope": {
+    "claims": [
+      "the bytes at contentRef were submitted as a prompt by the recorded actor at the recorded position on the chain, with the recorded role, media type, and session",
+      "the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone"
+    ],
+    "doesNotClaim": [
+      "that a model received them",
+      "that they are the whole of what the model saw",
+      "that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin"
+    ]
+  },
+  "predicates": []
+}

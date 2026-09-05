@@ -1,0 +1,72 @@
+{
+  "_comment": "Worked attestation example — principal.kind = obo_human (Alice calling Jira via MCP). Three siblings at each verification_level. dsseEnvelope is identical across siblings; only the outer container advances. See ./README.md for illustrative vs. live-verifiable caveats.",
+  "signed": {
+    "mediaType": "application/vnd.recurse.attestation+json;version=1.0",
+    "dsseEnvelope": {
+      "payloadType": "application/vnd.in-toto+json",
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJzdWJqZWN0IjpbeyJuYW1lIjoidG9vbF9jYWxsLmppcmEuY3JlYXRlX2lzc3VlIiwiZGlnZXN0Ijp7InNoYTI1NiI6ImEyYzRlNjgwZjFkM2I1Nzk4YmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODkifX1dLCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9yZWN1cnNlLmFpL2F0dGVzdGF0aW9uL3YxIiwicHJlZGljYXRlIjp7ImVudmVsb3BlX3ZlcnNpb24iOiIxLjAiLCJydW5faWQiOiIwMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAxIiwic3RlcF9pZCI6IjAxSFFYWjlSWEtTVEVQMDAwMDAwMDAxMDEiLCJ0dXJuX2lkIjoiMDFIUVhaOVJYS1RVUk4wMDAwMDAwMDAwMDEiLCJzZXNzaW9uX2lkIjoiMDFIUVhaOVJYS1NFU1MwMDAwMDAwMDAwMDEiLCJzZXNzaW9uX2NoYWluX3Bvc2l0aW9uIjo0MiwidGVuYW50X2lkIjoiMDFIUVhaOVJYSzAwMDAwMDAwMDAwMDBUMDEiLCJldmVudF9raW5kIjoidG9vbF9jYWxsIiwidGltZXN0YW1wIjoiMjAyNi0wNC0yMlQxNDoyMjozMS40MjhaIiwibWFjaGluZV9pZGVudGl0eSI6eyJzcGlmZmVfaWQiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvYWdlbnQvYWJjIn0sInByaW5jaXBhbCI6eyJraW5kIjoib2JvX2h1bWFuIiwic2NoZW1hX3ZlcnNpb24iOiIxLjAiLCJpc3N1ZXIiOiJodHRwczovL2F1dGguY29ycC5leGFtcGxlLmNvbSIsInN1YmplY3QiOiJhbGljZUBjb3JwLmV4YW1wbGUuY29tIiwiZGlzcGxheV9uYW1lIjoiQWxpY2UgQXBwbGVieSIsImdyb3VwcyI6WyJwbGF0Zm9ybS1lbmdpbmVlcmluZyIsImppcmEtd3JpdGVycyJdfSwicG9saWN5X2Nhbm9uaWNhbF9oYXNoIjoic2hhMjU2OjQ0ZWE2NjZhMmM5NTM1MDViMTliMmYxOTdkOTEyOGY5YzQ5MTQxNDljZDdhOTRmNmRiMDY4MzMxNzFjYjU1NDIiLCJwYXlsb2FkX2hhc2giOiJzaGEyNTY6YTJjNGU2ODBmMWQzYjU3OThiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OSIsInBheWxvYWRfdXJpIjoiczM6Ly9jdXN0b21lci1wYXlsb2Fkcy9ydW5zLzAxSFFYWjlSWEtSVU4wMDAwMDAwMFJVMDEvc3RlcC0wMDEuanNvbiIsImNvcnJlbGF0aW9uX2lkIjoiMDFIUVhaOVJYS0NPUlIwMDAwMDAwMDAwMDEiLCJzaWduZXIiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvZ2F0ZXdheS9nLTAxIn19",
+      "signatures": [
+        {
+          "keyid": "rec-signing-2026q2:v3",
+          "sig": "MEUCIQDmockSignatureBytes1ObOHumanSignedLevelExampleAAAAAAAAgAIgBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+        }
+      ]
+    },
+    "outer": {
+      "verification_level": "signed",
+      "tier_completeness_advisory": "complete",
+      "session_chain_epoch": 0,
+      "session_chain_root": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "inclusion_proof_local": null,
+      "inclusion_proof_global": null,
+      "commit_retry_exhausted": false,
+      "session_state": "active"
+    }
+  },
+  "local_inclusion_verified": {
+    "mediaType": "application/vnd.recurse.attestation+json;version=1.0",
+    "dsseEnvelope": {
+      "payloadType": "application/vnd.in-toto+json",
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJzdWJqZWN0IjpbeyJuYW1lIjoidG9vbF9jYWxsLmppcmEuY3JlYXRlX2lzc3VlIiwiZGlnZXN0Ijp7InNoYTI1NiI6ImEyYzRlNjgwZjFkM2I1Nzk4YmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODkifX1dLCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9yZWN1cnNlLmFpL2F0dGVzdGF0aW9uL3YxIiwicHJlZGljYXRlIjp7ImVudmVsb3BlX3ZlcnNpb24iOiIxLjAiLCJydW5faWQiOiIwMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAxIiwic3RlcF9pZCI6IjAxSFFYWjlSWEtTVEVQMDAwMDAwMDAxMDEiLCJ0dXJuX2lkIjoiMDFIUVhaOVJYS1RVUk4wMDAwMDAwMDAwMDEiLCJzZXNzaW9uX2lkIjoiMDFIUVhaOVJYS1NFU1MwMDAwMDAwMDAwMDEiLCJzZXNzaW9uX2NoYWluX3Bvc2l0aW9uIjo0MiwidGVuYW50X2lkIjoiMDFIUVhaOVJYSzAwMDAwMDAwMDAwMDBUMDEiLCJldmVudF9raW5kIjoidG9vbF9jYWxsIiwidGltZXN0YW1wIjoiMjAyNi0wNC0yMlQxNDoyMjozMS40MjhaIiwibWFjaGluZV9pZGVudGl0eSI6eyJzcGlmZmVfaWQiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvYWdlbnQvYWJjIn0sInByaW5jaXBhbCI6eyJraW5kIjoib2JvX2h1bWFuIiwic2NoZW1hX3ZlcnNpb24iOiIxLjAiLCJpc3N1ZXIiOiJodHRwczovL2F1dGguY29ycC5leGFtcGxlLmNvbSIsInN1YmplY3QiOiJhbGljZUBjb3JwLmV4YW1wbGUuY29tIiwiZGlzcGxheV9uYW1lIjoiQWxpY2UgQXBwbGVieSIsImdyb3VwcyI6WyJwbGF0Zm9ybS1lbmdpbmVlcmluZyIsImppcmEtd3JpdGVycyJdfSwicG9saWN5X2Nhbm9uaWNhbF9oYXNoIjoic2hhMjU2OjQ0ZWE2NjZhMmM5NTM1MDViMTliMmYxOTdkOTEyOGY5YzQ5MTQxNDljZDdhOTRmNmRiMDY4MzMxNzFjYjU1NDIiLCJwYXlsb2FkX2hhc2giOiJzaGEyNTY6YTJjNGU2ODBmMWQzYjU3OThiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OSIsInBheWxvYWRfdXJpIjoiczM6Ly9jdXN0b21lci1wYXlsb2Fkcy9ydW5zLzAxSFFYWjlSWEtSVU4wMDAwMDAwMFJVMDEvc3RlcC0wMDEuanNvbiIsImNvcnJlbGF0aW9uX2lkIjoiMDFIUVhaOVJYS0NPUlIwMDAwMDAwMDAwMDEiLCJzaWduZXIiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvZ2F0ZXdheS9nLTAxIn19",
+      "signatures": [
+        {
+          "keyid": "rec-signing-2026q2:v3",
+          "sig": "MEUCIQDmockSignatureBytes1ObOHumanSignedLevelExampleAAAAAAAAgAIgBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+        }
+      ]
+    },
+    "outer": {
+      "verification_level": "local_inclusion_verified",
+      "tier_completeness_advisory": "complete",
+      "session_chain_epoch": 0,
+      "session_chain_root": "sha256:9f3c0b8aa1c6b4a5bde8e9b77f72e8b1c0d4a2f5e7d3b9a6c8d1e2f3a4b5c6d7",
+      "inclusion_proof_local": "AAECAwBLAAABc2Vzc2lvbi1sb2NhbC1pbmNsdXNpb24tcHJvb2YtUkZDOTE2Mi10cmFuc2l0ZW0tZm9yLXRoaXMtZXBvY2gtcm9vdC1vYm9faHVtYW4tZXhhbXBsZS1wcm9vZi1ieXRlcy0xMjM0NTY3ODkwAB==",
+      "inclusion_proof_global": null,
+      "commit_retry_exhausted": false,
+      "session_state": "active"
+    }
+  },
+  "global_inclusion_verified": {
+    "mediaType": "application/vnd.recurse.attestation+json;version=1.0",
+    "dsseEnvelope": {
+      "payloadType": "application/vnd.in-toto+json",
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJzdWJqZWN0IjpbeyJuYW1lIjoidG9vbF9jYWxsLmppcmEuY3JlYXRlX2lzc3VlIiwiZGlnZXN0Ijp7InNoYTI1NiI6ImEyYzRlNjgwZjFkM2I1Nzk4YmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODkifX1dLCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9yZWN1cnNlLmFpL2F0dGVzdGF0aW9uL3YxIiwicHJlZGljYXRlIjp7ImVudmVsb3BlX3ZlcnNpb24iOiIxLjAiLCJydW5faWQiOiIwMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAxIiwic3RlcF9pZCI6IjAxSFFYWjlSWEtTVEVQMDAwMDAwMDAxMDEiLCJ0dXJuX2lkIjoiMDFIUVhaOVJYS1RVUk4wMDAwMDAwMDAwMDEiLCJzZXNzaW9uX2lkIjoiMDFIUVhaOVJYS1NFU1MwMDAwMDAwMDAwMDEiLCJzZXNzaW9uX2NoYWluX3Bvc2l0aW9uIjo0MiwidGVuYW50X2lkIjoiMDFIUVhaOVJYSzAwMDAwMDAwMDAwMDBUMDEiLCJldmVudF9raW5kIjoidG9vbF9jYWxsIiwidGltZXN0YW1wIjoiMjAyNi0wNC0yMlQxNDoyMjozMS40MjhaIiwibWFjaGluZV9pZGVudGl0eSI6eyJzcGlmZmVfaWQiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvYWdlbnQvYWJjIn0sInByaW5jaXBhbCI6eyJraW5kIjoib2JvX2h1bWFuIiwic2NoZW1hX3ZlcnNpb24iOiIxLjAiLCJpc3N1ZXIiOiJodHRwczovL2F1dGguY29ycC5leGFtcGxlLmNvbSIsInN1YmplY3QiOiJhbGljZUBjb3JwLmV4YW1wbGUuY29tIiwiZGlzcGxheV9uYW1lIjoiQWxpY2UgQXBwbGVieSIsImdyb3VwcyI6WyJwbGF0Zm9ybS1lbmdpbmVlcmluZyIsImppcmEtd3JpdGVycyJdfSwicG9saWN5X2Nhbm9uaWNhbF9oYXNoIjoic2hhMjU2OjQ0ZWE2NjZhMmM5NTM1MDViMTliMmYxOTdkOTEyOGY5YzQ5MTQxNDljZDdhOTRmNmRiMDY4MzMxNzFjYjU1NDIiLCJwYXlsb2FkX2hhc2giOiJzaGEyNTY6YTJjNGU2ODBmMWQzYjU3OThiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OSIsInBheWxvYWRfdXJpIjoiczM6Ly9jdXN0b21lci1wYXlsb2Fkcy9ydW5zLzAxSFFYWjlSWEtSVU4wMDAwMDAwMFJVMDEvc3RlcC0wMDEuanNvbiIsImNvcnJlbGF0aW9uX2lkIjoiMDFIUVhaOVJYS0NPUlIwMDAwMDAwMDAwMDEiLCJzaWduZXIiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvZ2F0ZXdheS9nLTAxIn19",
+      "signatures": [
+        {
+          "keyid": "rec-signing-2026q2:v3",
+          "sig": "MEUCIQDmockSignatureBytes1ObOHumanSignedLevelExampleAAAAAAAAgAIgBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+        }
+      ]
+    },
+    "outer": {
+      "verification_level": "global_inclusion_verified",
+      "tier_completeness_advisory": "complete",
+      "session_chain_epoch": 0,
+      "session_chain_root": "sha256:9f3c0b8aa1c6b4a5bde8e9b77f72e8b1c0d4a2f5e7d3b9a6c8d1e2f3a4b5c6d7",
+      "inclusion_proof_local": "AAECAwBLAAABc2Vzc2lvbi1sb2NhbC1pbmNsdXNpb24tcHJvb2YtUkZDOTE2Mi10cmFuc2l0ZW0tZm9yLXRoaXMtZXBvY2gtcm9vdC1vYm9faHVtYW4tZXhhbXBsZS1wcm9vZi1ieXRlcy0xMjM0NTY3ODkwAB==",
+      "inclusion_proof_global": "AAECAwBNAAABZ2xvYmFsLWxlZGdlci1pbmNsdXNpb24tcHJvb2YtUkZDOTE2Mi10cmFuc2l0ZW0tZm9yLWVwb2NoLXJvb3QtaW4tZ2xvYmFsLWxlZGdlci1vYm9faHVtYW4tMTIzNDU2NwAB==",
+      "commit_retry_exhausted": false,
+      "session_state": "committed"
+    }
+  }
+}

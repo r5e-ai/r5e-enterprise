@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/auth_me.json",
+  "x-version": "1.0.0",
+  "title": "auth_me",
+  "description": "Response body for GET /v1/auth/me — current authenticated session principal info derived from the BrowserSessionPlug-lifted session. Does NOT expose the JWT or any cookie content. Per contracts/audit_api_extensions.md \u00a7'Auth introspection' the shape is flat snake_case (the SPA's useAuth hook reads each field directly).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "principal_subject",
+    "recurse_role",
+    "tenant_id",
+    "browser_session_id",
+    "session_expires_at",
+    "session_idle_timeout_at"
+  ],
+  "properties": {
+    "principal_subject": {
+      "type": "string",
+      "description": "Stable principal identifier (e.g., 'alice@corp', 'auth0|...'), straight from the JWT 'sub' / principal.subject claim."
+    },
+    "recurse_role": {
+      "type": "string",
+      "enum": ["tenant_auditor", "platform_operator"],
+      "description": "Console role the principal carries for this session. Single role per session in F004."
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "ULID identifying the tenant that owns this Browser Session. Single-tenant per deployment in F004."
+    },
+    "browser_session_id": {
+      "type": "string",
+      "description": "ULID identifying this specific Browser Session (cookie envelope). Stable across the cookie's 8h absolute lifetime; rotates on a fresh login."
+    },
+    "session_expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC instant when the cookie envelope hits its 8h absolute timeout. After this, BrowserSessionPlug drops the cookie regardless of activity."
+    },
+    "session_idle_timeout_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC instant when the cookie envelope hits its 60-min idle timeout, computed from last_activity_at. Refreshed by mutation-only rotation."
+    }
+  }
+}

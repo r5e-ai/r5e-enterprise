@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://recurse.ai/schemas/v1/x_observed_identity.schema.json",
+  "title": "X-Observed-Identity JWT Claim Set (v1.0)",
+  "description": "Per FR-017. Standalone AI Gateway ONLY. Header value is a signed JWT (compact JWS) whose payload conforms to this schema. The JWT issuer is either the Recurse-shipped Standalone Identity Broker (FR-053) or a customer-supplied JWT issuer; both are first-class supported. See `x_observed_identity_flow.md` for the JWKS rotation flow narrative and a worked example payload.",
+  "type": "object",
+  "required": ["iss", "sub", "aud", "exp", "iat", "jti"],
+  "properties": {
+    "iss": {
+      "type": "string",
+      "format": "uri",
+      "description": "Issuer URI. MUST match the Standalone Broker URL configured on the Gateway or the customer's configured BYO JWT issuer URL. The Gateway resolves the issuer's JWKS via `{iss}/.well-known/jwks.json` (or an explicitly-configured JWKS URL override)."
+    },
+    "sub": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Observed machine identifier. This is the machine-identity anchor surfaced in attestation receipts' `machine_identity.spiffe_id` field (or `.observed_jwt_subject` for Standalone shape) and in SIEM events. No cryptographic peer-cert binding exists in Standalone Gateway — the issuer's signature is the trust anchor."
+    },
+    "aud": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      ],
+      "description": "Audience. MUST contain the configured Recurse Gateway audience value (exact string match). Gateway rejects JWTs where this claim is missing or does not include the configured audience with `ERR_AUTH_FAILED` on non-Data-Plane or HTTP 401 protocol-native on Data Plane."
+    },
+    "exp": {
+      "type": "integer",
+      "description": "POSIX seconds; expiry. Gateway rejects `now > exp + 60s` (±60s clock skew tolerance)."
+    },
+    "nbf": {
+      "type": "integer",
+      "description": "POSIX seconds; not-before. Optional. Gateway rejects `now < nbf - 60s`."
+    },
+    "iat": {
+      "type": "integer",
+      "description": "POSIX seconds; issued-at. Defense-in-depth age check: Gateway MAY reject JWTs with `now - iat > max_age_seconds` (deployment-configured; default 24h)."
+    },
+    "jti": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique JWT ID. Gateway maintains a bounded-size replay cache keyed on `(iss, jti)`. Default cache size: 100k entries per issuer; default entry TTL: max of (configured JWT max lifetime, 15 minutes). Cache behavior is documented in `standalone_identity_broker.md`."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Optional space-delimited scope list. Reserved for future tie-in to Cedar policy attributes. Not interpreted in v1.0."
+    },
+    "recurse_tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Optional tenant-ID assertion. When present, the Gateway verifies it matches the deployment's fixed `tenant_id` (defense-in-depth per FR-020). Mismatch yields `ERR_TENANT_ISOLATION` on non-Data-Plane requests."
+    }
+  },
+  "additionalProperties": true,
+  "$comment": "Signing algorithm constraints per FR-017 / RFC 7518: header.alg MUST be one of RS256, ES256, EdDSA. HS256 (symmetric) and `none` are forbidden — the Gateway rejects with ERR_AUTH_FAILED on non-Data-Plane / HTTP 401 protocol-native on Data Plane. Header-stripping: the Gateway strips X-Observed-Identity before forwarding upstream (defense against downstream services treating the JWT as authoritative). Key distribution: JWKS fetched from `{iss}/.well-known/jwks.json` (or configured JWKS URL) and cached per standard JWKS semantics with rotation flow documented in `x_observed_identity_flow.md`. Clock skew tolerance: ±60 seconds."
+}

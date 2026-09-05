@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/export_response.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "export_response",
+  "description": "Metadata contract for the synchronous response of POST /v1/audit/export (F002 T061 / FR-022). The HTTP response body itself is binary (application/zip) — for N=1 a single inner zip; for N>1 a zip-of-zips with one inner zip per run_id, both shapes emitted by Recurse.Gateway.AuditPlane.ExportHandler.do_handle/3 via EvidenceZipBuilder.build/2 + build_many/2. JSON Schema cannot describe binary body bytes, so this schema documents the structured ENVELOPE the SPA's downloader (ExportEvidenceButton.downloadEvidence) materializes: the blob, the parsed Content-Disposition filename, the response status, and the response Content-Type. The SPA's hand-maintained shape pre-#48 was untyped; this gives a single typed surface every consumer (single-receipt CTA + future BulkActionBar) imports. Error responses go through error_envelope.json (the F001 envelope), not this shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["filename", "content_type", "byte_size"],
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Filename parsed from the Content-Disposition header per RFC 6266; backend emits `evidence-<basic-iso8601>.zip`. Falls back client-side to a synthetic timestamped name when the header is missing.",
+      "pattern": "^.+\\.zip$"
+    },
+    "content_type": {
+      "type": "string",
+      "const": "application/zip",
+      "description": "Always application/zip; the backend sets this via Plug.Conn.put_resp_content_type/2 in ExportHandler.do_handle/3."
+    },
+    "byte_size": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Size in bytes of the downloaded zip blob. Used by the SPA's UI for download progress + audit-log of the size delivered."
+    },
+    "run_ids": {
+      "type": "array",
+      "description": "Echo of the request's run_ids; populated by the SPA from the originating request shape (the response body itself is binary so this is not a wire field). Optional — the SPA carries it through for UI book-keeping.",
+      "items": {"type": "string"},
+      "minItems": 1,
+      "maxItems": 100
+    }
+  }
+}

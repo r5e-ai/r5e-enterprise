@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# verify-bundled-merkle — RFC 9162 §2.1.2 inclusion-proof verifier (F002 T066).
+#
+# Vendored, first-party Recurse implementation. ~120 LOC bash + openssl.
+# Reads a binary RFC 9162 `TransItem` (inclusion_v1 variant) produced by
+# Recurse.Shared.Attestation.Rfc9162.encode/1 and verifies that the given
+# leaf hash (SHA-256 of 0x00 || leaf_data per RFC 9162 §2.1 "hash_leaf")
+# reconstructs to the given expected root via the RFC 9162 §2.1.2 audit
+# path walk.
+#
+# Wire format (RFC 9162 TLS presentation syntax):
+#
+#     struct {
+#       VersionedTransType versioned_type;   // uint16 = 0x0100 inclusion_v1
+#       opaque log_id<32..32>;                // 32-byte fixed log id
+#       uint64 leaf_index;
+#       uint64 tree_size;
+#       NodeHash inclusion_path<0..2^16-1>;    // sequence of 32-byte hashes
+#     } TransItem;
+#
+# Algorithm (RFC 9162 §2.1.2, iterative verifier):
+#
+#     (fn_, sn) ← (leaf_index, tree_size - 1)
+#     for each sibling in inclusion_path:
+#       if fn_ == sn AND fn_ is even:
+#         // leaf is trailing odd-one-out at this level — no sibling consumed
+#         (fn_, sn) ← (fn_ >> 1, sn >> 1)
+#         (sibling stays in the queue, consumed at next level)
+#       elif fn_ is odd:
+#         hash ← SHA-256(0x01 || sibling || hash)
+#         (fn_, sn) ← (fn_ >> 1, sn >> 1)
+#       else:
+#         hash ← SHA-256(0x01 || hash || sibling)
+#         (fn_, sn) ← (fn_ >> 1, sn >> 1)
+#     assert hash == expected_root
+#
+# Exit codes:
+#   0 — PASS (hash matches expected root)
+#   1 — FAIL (mismatch, malformed TransItem, or missing tool)
+#
+# Usage:
+#   verify-bundled-merkle \
+#     --proof <path-to-TransItem-bytes> \
+#     --leaf-hash <64-hex-of-SHA-256(0x00 || leaf_data)> \
+#     --root-hash <64-hex-of-expected-root>
+#
+# Cross-reference: specs/002-standalone-gateway-vertical-slice/contracts/
+# recurse_verify_spec.md §Implementation notes.
+
+set -euo pipefail
+
+die() { echo "verify-bundled-merkle: $*" >&2; exit 1; }
+
+PROOF=""; LEAF_HASH=""; ROOT_HASH=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --proof)     PROOF="$2"; shift 2 ;;
+    --leaf-hash) LEAF_HASH="$2"; shift 2 ;;
+    --root-hash) ROOT_HASH="$2"; shift 2 ;;
+    -h|--help)
+      sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//' | sed '$d'
+      exit 0
+      ;;
+    *) die "unknown arg: $1" ;;
+  esac
+done
+
+[[ -n "$PROOF" && -n "$LEAF_HASH" && -n "$ROOT_HASH" ]] || \
+  die "required: --proof FILE --leaf-hash HEX --root-hash HEX"
+[[ -f "$PROOF" ]] || die "proof file not found: $PROOF"
+command -v openssl >/dev/null 2>&1 || die "openssl not found"
+command -v xxd     >/dev/null 2>&1 || die "xxd not found"
+
+# Normalize hashes: strip optional "sha256:" prefix, lowercase.
+LEAF_HASH="${LEAF_HASH#sha256:}"
+LEAF_HASH="$(printf '%s' "$LEAF_HASH" | tr 'A-F' 'a-f')"
+ROOT_HASH="${ROOT_HASH#sha256:}"
+ROOT_HASH="$(printf '%s' "$ROOT_HASH" | tr 'A-F' 'a-f')"
+[[ "${#LEAF_HASH}" -eq 64 ]] || die "--leaf-hash must be 32 bytes (64 hex chars)"
+[[ "${#ROOT_HASH}" -eq 64 ]] || die "--root-hash must be 32 bytes (64 hex chars)"
+
+# Read the whole TransItem as hex, one byte per pair.
+PROOF_HEX="$(xxd -p -c 99999 "$PROOF" | tr -d '\n')"
+total_len=$(( ${#PROOF_HEX} / 2 ))
+# Minimum: 2 tag + 32 log_id + 8 leaf_index + 8 tree_size + 2 path_len = 52 bytes
+[[ $total_len -ge 52 ]] || die "TransItem shorter than 52 bytes"
+
+hex_u16_at() {
+  # $1 = byte offset; prints decimal value of big-endian uint16.
+  local off=$1 hex
+  hex="${PROOF_HEX:$((off * 2)):4}"
+  printf '%d' "0x$hex"
+}
+hex_u64_at() {
+  # $1 = byte offset; prints decimal value of big-endian uint64.
+  local off=$1 hex
+  hex="${PROOF_HEX:$((off * 2)):16}"
+  printf '%d' "0x$hex"
+}
+
+tag=$(hex_u16_at 0)
+[[ "$tag" -eq 256 ]] || die "TransItem tag 0x$(printf '%04x' "$tag") is not inclusion_v1 (0x0100)"
+
+# log_id at bytes 2..33 (32 bytes). Skip — not used in verification math.
+leaf_index=$(hex_u64_at 34)
+tree_size=$(hex_u64_at 42)
+path_len=$(hex_u16_at 50)
+
+[[ $(( total_len - 52 )) -eq $path_len ]] \
+  || die "inclusion_path length byte ($path_len) inconsistent with remaining TransItem bytes ($((total_len - 52)))"
+[[ $(( path_len % 32 )) -eq 0 ]] \
+  || die "inclusion_path length ($path_len) is not a multiple of 32 bytes"
+
+num_hashes=$(( path_len / 32 ))
+PATH_HEX="${PROOF_HEX:104}"
+
+# Special single-leaf tree: tree_size = 1, leaf_index = 0, empty path, leaf IS the root.
+if [[ $tree_size -eq 1 ]]; then
+  [[ $leaf_index -eq 0 && $num_hashes -eq 0 ]] \
+    || die "tree_size=1 expects leaf_index=0 and empty path"
+  if [[ "$LEAF_HASH" == "$ROOT_HASH" ]]; then
+    exit 0
+  else
+    die "tree_size=1: leaf hash does not equal root hash"
+  fi
+fi
+
+[[ $leaf_index -lt $tree_size ]] || die "leaf_index ($leaf_index) >= tree_size ($tree_size)"
+
+# hash_interior(l, r) = SHA-256(0x01 || l || r); l, r are 32-byte hex strings.
+hash_interior_hex() {
+  local left="$1" right="$2" payload bytes_hex
+  payload="01${left}${right}"
+  # openssl reads binary; pipe hex→binary via xxd -r -p, then sha256, strip "(stdin)= " prefix.
+  bytes_hex="$(printf '%s' "$payload" | xxd -r -p | openssl dgst -sha256 -r | awk '{print $1}')"
+  printf '%s' "$bytes_hex"
+}
+
+fn_=$leaf_index
+sn=$(( tree_size - 1 ))
+hash="$LEAF_HASH"
+
+# Consume `num_hashes` siblings from PATH_HEX, one 64-hex-char chunk at a time.
+path_idx=0
+while [[ $path_idx -lt $num_hashes ]]; do
+  if [[ $sn -eq 0 ]]; then
+    die "ran past root but proof still has siblings (path index $path_idx)"
+  fi
+
+  sibling="${PATH_HEX:$((path_idx * 64)):64}"
+
+  # Case 1: fn_ == sn AND fn_ even — leaf is trailing stray at this level;
+  # no sibling consumed, halve fn_/sn, retry with same path_idx.
+  if [[ $fn_ -eq $sn && $(( fn_ % 2 )) -eq 0 ]]; then
+    fn_=$(( fn_ >> 1 ))
+    sn=$(( sn >> 1 ))
+    continue
+  fi
+
+  # Case 2: fn_ odd → leaf is right child; sibling on LEFT.
+  # Case 3: else fn_ even → leaf is left child; sibling on RIGHT.
+  if [[ $(( fn_ % 2 )) -eq 1 ]]; then
+    hash="$(hash_interior_hex "$sibling" "$hash")"
+  else
+    hash="$(hash_interior_hex "$hash" "$sibling")"
+  fi
+
+  fn_=$(( fn_ >> 1 ))
+  sn=$(( sn >> 1 ))
+  path_idx=$(( path_idx + 1 ))
+done
+
+# After all siblings consumed we should have rolled up to the root.
+[[ $sn -eq 0 ]] || die "proof consumed but fn_/sn not fully collapsed (fn_=$fn_ sn=$sn)"
+
+if [[ "$hash" == "$ROOT_HASH" ]]; then
+  exit 0
+else
+  echo "verify-bundled-merkle: computed root $hash does not match expected $ROOT_HASH" >&2
+  exit 1
+fi

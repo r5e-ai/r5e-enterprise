@@ -1,0 +1,20 @@
+# Build artifacts + dependencies
+node_modules/
+dist/
+.vite/
+coverage/
+playwright-report/
+test-results/
+# TypeScript incremental build cache — regenerated on every `tsc -b`
+tsconfig.tsbuildinfo
+
+# Editor / OS cruft
+.DS_Store
+*.log
+
+# IMPORTANT: per F004 research D10, the following ARE COMMITTED, NOT IGNORED:
+#   - src/lib/types.ts            (generated from priv/schemas/*.json; CI staleness gate)
+#   - src/lib/design_tokens.ts    (generated from design tokens; CI staleness gate)
+#   - tailwind.config.ts          (generated from design_tokens.ts; CI staleness gate)
+# Drift between source schemas/tokens and committed generated files MUST fail CI.
+# DO NOT add these patterns to this file.

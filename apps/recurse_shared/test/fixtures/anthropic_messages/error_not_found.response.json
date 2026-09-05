@@ -1,0 +1,8 @@
+{
+  "type": "error",
+  "error": {
+    "type": "not_found_error",
+    "message": "model: claude-bogus-model-1"
+  },
+  "request_id": "req_011Cef2Yvn433FxwxBRdVYBz"
+}

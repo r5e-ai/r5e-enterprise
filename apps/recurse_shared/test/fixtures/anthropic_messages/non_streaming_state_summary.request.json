@@ -1,0 +1,30 @@
+{
+  "model": "claude-haiku-4-5-20251001",
+  "max_tokens": 1024,
+  "system": [
+    {
+      "type": "text",
+      "text": "x-anthropic-billing-header: cc_version=2.1.223.374; cc_entrypoint=claude-desktop;"
+    },
+    {
+      "type": "text",
+      "text": "A user kicked off a Claude Code agent to do a coding task and walked away. Read the tail of what the agent just said and decide which of four states it's in, so the system knows whether to notify the user.\n\nThe classification drives a phone notification: \"blocked\" pings the user to come back; everyt\n[elided 16312 chars]",
+      "cache_control": {
+        "type": "ephemeral",
+        "ttl": "1h"
+      }
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Current state: working (for 0m)\nTool calls so far: Bash\nUser's most recent ask: \"Use the Bash tool to run `ls -la` in this directory, then tell me in one sentence what you see.\"\n\nAssistant message tail (last 125 chars):\nThe directory contains a README.md file and three empty log/output files (a.stderr, b.out.json, b.stderr), all created today."
+    }
+  ],
+  "thinking": {
+    "type": "disabled"
+  },
+  "metadata": {
+    "user_id": "{\"device_id\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"account_uuid\":\"00000000-0000-0000-0000-000000000000\",\"session_id\":\"ecdcbccc-ecb4-40f4-bbb1-db3ad3b16bca\"}"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "format": "r5e-release-dependencies/v1",
+  "repositories": {
+    "r5e-core": {
+      "commit": "46a209d5fc6e7a3c50058ebef54ee5ec92400b19",
+      "url": "https://gitlab.com/r5e-group/r5e-core.git"
+    },
+    "r5e-kernel": {
+      "commit": "0139b8704b5bf548f9069f88cb01825c47059829",
+      "url": "https://gitlab.com/r5e-group/r5e-kernel.git"
+    }
+  }
+}

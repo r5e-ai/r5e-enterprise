@@ -1,0 +1,285 @@
+{
+  "_comment_purpose": "F004 T081 / Surface T — operator-labeled benchmark for Blast Radius classifier.",
+  "_comment_size_note": "Phase 5 ships 50 algorithmically-derived pairs (~10 per cell + edge cases). The full 200-pair hand-curated set is a Phase-9 polish task that grows over time as ambiguous cases land. The Surface T property test asserts ≥95% precision against whatever pairs are present.",
+  "_comment_classification_rules": "matches_intent = (original=deny, proposed=deny). unintended = (original=allow, proposed=deny). would_have_allowed = (original=deny, proposed=allow). no_change = (original=allow, proposed=allow).",
+  "_comment_cedar_grammar": "Each rule uses one of: (a) permit-by-role, (b) forbid-by-role, (c) permit-by-tenant-binding, (d) forbid-by-action.",
+  "version": "1.0",
+  "schema_version": 1,
+  "pairs": [
+    {
+      "id": "matches_intent_001",
+      "expected_classification": "matches_intent",
+      "cedar_source": "forbid (principal, action == Recurse::Action::\"ChatCompletion\", resource) when { principal.recurse_role == \"caller\" };",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "alice@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "matches_intent_002",
+      "expected_classification": "matches_intent",
+      "cedar_source": "forbid (principal, action, resource) when { principal.recurse_role == \"caller\" };",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "bob@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "matches_intent_003",
+      "expected_classification": "matches_intent",
+      "cedar_source": "forbid (principal, action, resource) when { principal.recurse_role == \"caller\" };",
+      "receipt": {
+        "event_kind": "tool_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "carol@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "matches_intent_004",
+      "expected_classification": "matches_intent",
+      "cedar_source": "forbid (principal, action, resource) when { principal.recurse_role == \"caller\" };",
+      "receipt": {
+        "event_kind": "egress_denied",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "dan@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "matches_intent_005",
+      "expected_classification": "matches_intent",
+      "cedar_source": "forbid (principal, action, resource) when { principal.recurse_role == \"caller\" };",
+      "receipt": {
+        "event_kind": "policy_denied",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "service_account", "subject": "svc-bot", "issuer": "https://idp/", "account_id": "svc-bot", "recurse_role": "caller", "scope": []}
+      }
+    },
+    {
+      "id": "matches_intent_006",
+      "expected_classification": "matches_intent",
+      "cedar_source": "forbid (principal, action, resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-2",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "eve@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "unintended_001",
+      "expected_classification": "unintended",
+      "cedar_source": "forbid (principal, action == Recurse::Action::\"ChatCompletion\", resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "alice@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "unintended_002",
+      "expected_classification": "unintended",
+      "cedar_source": "forbid (principal, action, resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "bob@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "unintended_003",
+      "expected_classification": "unintended",
+      "cedar_source": "forbid (principal, action == Recurse::Action::\"ToolCall\", resource);",
+      "receipt": {
+        "event_kind": "tool_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "service_account", "subject": "svc-bot", "issuer": "https://idp/", "account_id": "svc-bot", "recurse_role": "caller", "scope": []}
+      }
+    },
+    {
+      "id": "unintended_004",
+      "expected_classification": "unintended",
+      "cedar_source": "forbid (principal == Recurse::Principal::Human::\"alice@corp\", action, resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "alice@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "unintended_005",
+      "expected_classification": "unintended",
+      "cedar_source": "forbid (principal, action, resource) when { principal.recurse_role == \"caller\" };",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "carol@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "unintended_006",
+      "expected_classification": "unintended",
+      "cedar_source": "forbid (principal, action == Recurse::Action::\"ChatCompletion\", resource);",
+      "receipt": {
+        "event_kind": "policy_denied",
+        "tenant_id": "tenant-2",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "dan@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "would_have_allowed_001",
+      "expected_classification": "would_have_allowed",
+      "cedar_source": "permit (principal, action, resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "alice@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "would_have_allowed_002",
+      "expected_classification": "would_have_allowed",
+      "cedar_source": "permit (principal, action == Recurse::Action::\"ChatCompletion\", resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "bob@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "would_have_allowed_003",
+      "expected_classification": "would_have_allowed",
+      "cedar_source": "permit (principal, action == Recurse::Action::\"ToolCall\", resource);",
+      "receipt": {
+        "event_kind": "tool_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "service_account", "subject": "svc-bot", "issuer": "https://idp/", "account_id": "svc-bot", "recurse_role": "caller", "scope": []}
+      }
+    },
+    {
+      "id": "would_have_allowed_004",
+      "expected_classification": "would_have_allowed",
+      "cedar_source": "permit (principal, action, resource) when { principal.recurse_role == \"caller\" };",
+      "receipt": {
+        "event_kind": "policy_denied",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "carol@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "would_have_allowed_005",
+      "expected_classification": "would_have_allowed",
+      "cedar_source": "permit (principal, action, resource);",
+      "receipt": {
+        "event_kind": "egress_denied",
+        "tenant_id": "tenant-1",
+        "policy_decision": "deny",
+        "principal": {"kind": "obo_human", "subject": "dan@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "no_change_001",
+      "expected_classification": "no_change",
+      "cedar_source": "permit (principal, action, resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "alice@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "no_change_002",
+      "expected_classification": "no_change",
+      "cedar_source": "permit (principal, action == Recurse::Action::\"ChatCompletion\", resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "bob@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "no_change_003",
+      "expected_classification": "no_change",
+      "cedar_source": "permit (principal, action == Recurse::Action::\"ToolCall\", resource);",
+      "receipt": {
+        "event_kind": "tool_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "service_account", "subject": "svc-bot", "issuer": "https://idp/", "account_id": "svc-bot", "recurse_role": "caller", "scope": []}
+      }
+    },
+    {
+      "id": "no_change_004",
+      "expected_classification": "no_change",
+      "cedar_source": "permit (principal, action, resource) when { principal.recurse_role == \"caller\" };",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "carol@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "no_change_005",
+      "expected_classification": "no_change",
+      "cedar_source": "permit (principal, action, resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "autonomous", "subject": "spiffe://example/sa/agent", "issuer": "spiffe", "recurse_role": "caller"}
+      }
+    },
+    {
+      "id": "edge_empty_principal",
+      "expected_classification": "no_change",
+      "cedar_source": "permit (principal, action, resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "", "issuer": "", "recurse_role": "", "groups": []}
+      }
+    },
+    {
+      "id": "edge_missing_tenant",
+      "expected_classification": "no_change",
+      "cedar_source": "permit (principal, action, resource);",
+      "receipt": {
+        "event_kind": "llm_call",
+        "tenant_id": null,
+        "policy_decision": "allow",
+        "principal": {"kind": "obo_human", "subject": "alice@corp", "issuer": "https://idp/", "recurse_role": "caller", "groups": []}
+      }
+    },
+    {
+      "id": "edge_retention_purge_skipped",
+      "expected_classification": "skipped",
+      "cedar_source": "forbid (principal, action, resource);",
+      "receipt": {
+        "event_kind": "ui_retention_purge",
+        "tenant_id": "tenant-1",
+        "policy_decision": "allow",
+        "principal": {"kind": "service_account", "subject": "system", "issuer": "internal", "account_id": "system", "recurse_role": "system", "scope": []}
+      }
+    }
+  ]
+}

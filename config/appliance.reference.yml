@@ -1,0 +1,91 @@
+# Reference Tier Configuration — Air-Gapped Appliance
+# ---------------------------------------------------------------
+# Phase-2 deferred per FR-013 — schema-compat scaffold only.
+# ---------------------------------------------------------------
+# This file exists so the Tier Configuration JSON Schema (`tier_config.schema.json`)
+# validates appliance-shape examples and so Phase-2 work inherits a known-good
+# starting point. It is NOT a shippable operator deliverable in Phase 1.
+#
+# Phase-2 Air-Gapped Appliance feature will produce the real reference YAML
+# alongside its own design pass + GAN. Expected additions:
+#   - Offline signed-manifest PolicyProvider per FR-052 (path defined, impl stubbed here)
+#   - PKCS#11 or bundled-HSM-equivalent SecretsProvider per FR-046 air-gapped note
+#   - Ledger-internal sequence-only time anchor per FR-031 (no NTP)
+#   - Appliance-specific installer wiring for pre-loaded policy bundles
+#
+# Until Phase-2, deploying against this config is UNSUPPORTED.
+
+tier: appliance
+topology: single_node
+
+tenant_id: "01HTENANTEXAMPLE000000000A"
+
+runtime:
+  enabled: true
+
+gateway:
+  enabled: true
+
+auth:
+  anchors:
+    netns: true
+    observed_identity: false
+  principal_provider:
+    impl: "Recurse.Providers.Impls.AppliancePivCacPrincipalProvider"
+    config:
+      # PIV/CAC smartcard-backed principal resolution — Phase-2 impl stub.
+      # Exact config keys subject to change when the Phase-2 Appliance feature lands.
+      trust_store_path: "/etc/recurse/appliance/pivcac-trust-store.pem"
+
+session:
+  interim_commit_event_count: 10000
+  interim_commit_threshold_minutes: 60
+
+providers:
+  llm:
+    impl: "Recurse.Providers.Impls.LocalLlmProvider"
+    config:
+      # Air-gapped deployments point at a customer-operated local LLM endpoint.
+      api_base: "http://localhost:11434/v1"
+      secret_ref: null
+  ledger:
+    impl: "Recurse.Providers.Impls.PostgresMerkleLedgerProvider"
+    config:
+      database_url: "postgres://recurse:recurse@localhost/recurse_ledger"
+  storage:
+    impl: "Recurse.Providers.Impls.FilesystemStorageProvider"
+    config:
+      root_dir: "/var/lib/recurse/payloads"
+  secrets:
+    impl: "Recurse.Providers.Impls.Pkcs11SecretsProvider"
+    config:
+      pkcs11_module_path: "/usr/lib/softhsm/libsofthsm2.so"
+      signing_key_label: "recurse-appliance-signing-key"
+      # Air-gapped signing keys are not rotated automatically; rotation is an
+      # operator-driven procedure per FR-046 / Phase-2 Appliance design.
+      signing_key_rotation_days: null
+  identity:
+    impl: "Recurse.Providers.Impls.SpireIdentityProvider"
+    config:
+      spire_server: "localhost:8081"
+      trust_domain: "appliance.local"
+  policy:
+    # FR-052 — offline signed-manifest distribution path. USB-droppable bundles
+    # verified against a customer-provided trust root before acceptance.
+    impl: "Recurse.Providers.Impls.OfflineSignedManifestPolicyProvider"
+    config:
+      bundle_staging_dir: "/var/lib/recurse/policy-bundles"
+      customer_trust_root_pem: "/etc/recurse/appliance/policy-trust-root.pem"
+
+cedar:
+  version_pin: "4.9.1"
+  cedar_crate_digest: "sha256:50368b44367cd7664627bbee9bfe5721d10ab2433daf77645833645e8eb746da"
+
+rate_limits:
+  data_plane_qps_per_agent: 60
+  control_plane_qps_per_tenant: 30
+  max_payload_bytes: 2097152
+
+features:
+
+dev_mode: false

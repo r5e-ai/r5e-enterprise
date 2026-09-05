@@ -1,0 +1,64 @@
+# Vector TEST config — used by `docker-compose.test.yaml` overlay
+# for the US4 integration test (F002 T069).
+#
+# Identical to the reference `docker-compose/vector.toml` EXCEPT the
+# Splunk HEC sink is uncommented and points at the `mock-hec` container
+# (bound into the compose network; no TLS; a dummy token).
+#
+# Do NOT use this config in production — it targets a mock endpoint.
+
+data_dir = "/var/lib/vector"
+
+[api]
+enabled = true
+address = "0.0.0.0:8686"
+
+# Source: tail the recurse-gateway container's stdout.
+[sources.gateway_stdout]
+type = "docker_logs"
+include_containers = ["recurse-gateway"]
+docker_host = "unix:///var/run/docker.sock"
+
+# Transform: extract the NDJSON payload from the container log line.
+# `docker_logs` emits events with a `message` field containing the raw
+# stdout line — which for the SIEM forwarder IS already NDJSON. Parse
+# it so the HEC sink ships the parsed object, not the stringified wrapper.
+[transforms.parse_siem]
+type = "remap"
+inputs = ["gateway_stdout"]
+source = '''
+  parsed, err = parse_json(.message)
+  if err == null {
+    . = parsed
+  }
+'''
+
+# Sink 1: console (helps local debugging during test runs).
+[sinks.console]
+type = "console"
+inputs = ["parse_siem"]
+encoding.codec = "json"
+
+# Sink 2: mock Splunk HEC.
+[sinks.mock_hec]
+type = "splunk_hec_logs"
+inputs = ["parse_siem"]
+endpoint = "http://mock-hec:8088"
+default_token = "test-hec-token-not-a-secret"
+source = "recurse:gateway"
+sourcetype = "recurse:attestation:v1"
+index = "recurse_audit"
+compression = "none"
+encoding.codec = "json"
+tls.verify_certificate = false
+
+# No on-disk buffer for the test — we want prompt delivery.
+[sinks.mock_hec.buffer]
+type = "memory"
+max_events = 1000
+when_full = "block"
+
+[sinks.mock_hec.request]
+retry_max_duration_secs = 30
+retry_initial_backoff_secs = 1
+retry_max_backoff_secs = 5

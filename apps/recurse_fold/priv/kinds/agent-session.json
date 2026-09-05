@@ -1,0 +1,64 @@
+{
+  "group": "gateway.r5e.io",
+  "kind": "AgentSession",
+  "version": "v1alpha1",
+  "substrate": "resource",
+  "naming": {
+    "mode": "server"
+  },
+  "description": "A span of work by one actor, named by the kernel from its admission event and replaceable only by that actor. Every field is optional; the actor is the actor of record on the admission.",
+  "schema": {
+    "required": [],
+    "properties": {
+      "harness": {
+        "type": "string"
+      },
+      "purpose": {
+        "type": "string"
+      },
+      "startedAt": {
+        "type": "string"
+      },
+      "endedAt": {
+        "type": "string"
+      },
+      "parent": {
+        "type": "ref",
+        "ref": {
+          "kind": "gateway.r5e.io/v1alpha1/AgentSession"
+        }
+      },
+      "sourceIds": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "run": {
+            "type": "string"
+          },
+          "turn": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "epistemicScope": {
+    "claims": [
+      "the actor of record on this resource's admission opened a span of work at the recorded position on the chain, with the recorded harness and purpose when present",
+      "the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone"
+    ],
+    "doesNotClaim": [
+      "on whose behalf the work ran beyond the authority the admission cited — an Endorsement says a key may admit these Kinds in this term, never that any particular person asked for this session",
+      "that this session's events are all of its events",
+      "that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin"
+    ]
+  },
+  "predicates": []
+}

@@ -1,0 +1,1281 @@
+{
+  "model": "claude-haiku-4-5-20251001",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<system-reminder>\nAvailable agent types for the Agent tool:\n- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no\n[elided 2565 chars]"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder>\nThe following skills are available for use with the Skill tool:\n\n- dataviz: Use this skill whenever you are about to create ANY chart, graph, \n[elided 5990 chars]"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# userEmail\nThe user's email address is user@example.com.\n# currentDate\nToday's date is 2026-09-02.\n\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n\n"
+        },
+        {
+          "type": "text",
+          "text": "Reply with exactly the single word PONG and nothing else.",
+          "cache_control": {
+            "type": "ephemeral",
+            "ttl": "1h"
+          }
+        }
+      ]
+    }
+  ],
+  "system": [
+    {
+      "type": "text",
+      "text": "x-anthropic-billing-header: cc_version=2.1.223.257; cc_entrypoint=claude-desktop;"
+    },
+    {
+      "type": "text",
+      "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+      "cache_control": {
+        "type": "ephemeral",
+        "ttl": "1h"
+      }
+    },
+    {
+      "type": "text",
+      "text": "\nYou are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.\n\nIMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destruc\n[elided 27963 chars]",
+      "cache_control": {
+        "type": "ephemeral",
+        "ttl": "1h"
+      }
+    }
+  ],
+  "tools": [
+    {
+      "name": "Agent",
+      "description": "Launch a new agent to handle complex, multi-step tasks. Each agent type has specific capabilities and tools available to\n[elided 6605 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "description": {
+            "description": "A short (3-5 word) description of the task",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "The task for the agent to perform",
+            "type": "string"
+          },
+          "subagent_type": {
+            "description": "The type of specialized agent to use for this task",
+            "type": "string"
+          },
+          "model": {
+            "description": "Optional model override for this agent. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent. Ignored for subagent_type: \"fork\" — forks always inherit the parent model.",
+            "type": "string",
+            "enum": [
+              "sonnet",
+              "opus",
+              "haiku",
+              "fable"
+            ]
+          },
+          "run_in_background": {
+            "description": "Agents run in the background by default; you will be notified when one completes. Set to false to run this agent synchronously when you need its result before continuing.",
+            "type": "boolean"
+          },
+          "isolation": {
+            "description": "Isolation mode. \"worktree\" creates a temporary git worktree so the agent works on an isolated copy of the repo. \"remote\" launches the agent in a remote cloud environment (always runs in background; availability is gated).",
+            "type": "string",
+            "enum": [
+              "worktree",
+              "remote"
+            ]
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Artifact",
+      "description": "Render an HTML or Markdown file to an Artifact — a default-private web page hosted on claude.ai that the user can later \n[elided 7194 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "description": "Omit (or 'publish') to publish file_path. 'list' enumerates artifacts — the user's own by default, see `scope`; only `limit` and `scope` may accompany it. 'comments' reads the comment threads on a published artifact (pass `url`); a comment labeled 'sent to you' was sent to Claude and is addressed to you, while other comments are not necessarily addressed to you — and a thread you were activated on may carry a backlog of existing feedback for you to address even when no comment is labeled. 'reply' posts a reply into one comment thread (pass `url`, `thread_id`, `text`) — only threads a person has activated for Claude accept replies (they activate by mentioning @claude in the thread, or via the thread's Claude control where the viewer offers one); activation can also be cleared — by deactivating Claude on the thread, or by a republish or rename — and is unrelated to whether a thread is resolved (resolved threads still accept replies).",
+            "type": "string",
+            "enum": [
+              "publish",
+              "list",
+              "comments",
+              "reply"
+            ]
+          },
+          "file_path": {
+            "description": "Path to an .html or .md file to render. Required to publish (the default action). Use a short, distinctive basename — it is the last-resort title when the HTML has no <title> and no `title` parameter is given.",
+            "type": "string"
+          },
+          "favicon": {
+            "description": "Browser-tab icon: one or two emoji (e.g. \"📊\"). No markup. Required to publish. Keep stable across redeploys; change only on a hard topic pivot.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "limit": {
+            "description": "list only: maximum artifacts to return (default 25).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "scope": {
+            "description": "list only: 'mine' (default) lists artifacts the user owns — the only ones the update flow can target; 'shared' lists artifacts other people shared with the user (read-only); 'all' lists both. Rows are labeled (mine)/(shared) whenever scope is not 'mine'.",
+            "type": "string",
+            "enum": [
+              "mine",
+              "shared",
+              "all"
+            ]
+          },
+          "title": {
+            "description": "Title for the artifact — the name shown in the browser tab and gallery. Prefer a <title> tag in the HTML itself; this parameter fills in only when the file lacks one and never overrides the tag. HTML publishes only — Markdown pages keep their filename identity. Content always comes from file_path — there is no inline content parameter.",
+            "type": "string"
+          },
+          "description": {
+            "description": "One-sentence subtitle shown on the gallery card. Say what the page is or does.",
+            "type": "string",
+            "maxLength": 1000
+          },
+          "label": {
+            "description": "Short human-readable name for this version, max 60 chars (e.g. \"fixed-background\"). Shown in the version picker. Not a description — keep it to a few words.",
+            "type": "string",
+            "maxLength": 60
+          },
+          "url": {
+            "description": "Existing artifact URL to update in place. Pass whenever the user wants to update an artifact this conversation did not publish — \"update my artifact\", \"keep the same link\", a pasted artifact URL — and find the URL with action: \"list\" if you don't have it; without this, a conversation that didn't publish the artifact always mints a new URL. Omit for new artifacts and same-conversation redeploys. Must be an artifact the user owns.",
+            "type": "string"
+          },
+          "force": {
+            "description": "Last-resort overwrite that DISCARDS another session's published version. On a 409 conflict the normal fix is to re-read the artifact, merge your edits on top of the newer content, and publish again — not force. Pass force:true only when the user explicitly wants to replace the other session's version. The tracked baseVersion is still sent; with force:true the server treats it as informational and overwrites. Omit (or false) so a concurrent write 409s instead of being silently clobbered.",
+            "type": "boolean"
+          },
+          "thread_id": {
+            "description": "reply only: id of the comment thread to reply into, from action \"comments\".",
+            "type": "string"
+          },
+          "text": {
+            "description": "reply only: the reply text. Plain text, at most 4096 bytes of UTF-8.",
+            "type": "string"
+          },
+          "capabilities": {
+            "description": "Runtime capabilities this page declares, as {name: config}. The control plane is the authority on valid names and config shapes. An empty object clears any previously stored declaration; omit the field on a redeploy to carry the stored declaration forward unchanged. Before declaring any capability, load the `artifact-capabilities` skill for the current contract and per-capability guidance.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "additionalProperties": {}
+          },
+          "contract": {
+            "description": "The artifact's runtime version. Omit to keep its current version (the default); 'latest' to upgrade; a specific version to pin or roll back. Changing it changes how the published page behaves — pass only when the author explicitly intends the change, never as a side effect of editing.",
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "latest"
+              },
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9]\\d{0,3})\\.(0|[1-9]\\d{0,4})\\.(0|[1-9]\\d{0,5})$"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Bash",
+      "description": "Executes a given bash command and returns its output.\n\nThe working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh).\n\nIMPORTANT: Avoid using this tool to run `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user:\n\n - Read files: Use Read (NOT cat/head/tail)\n - Edit files: Use Edit (NOT sed/awk)\n - Write files: Use Write (NOT echo >/cat <<EOF)\n - Communication: Output text directly (NOT echo/printf)\nWhile the Bash tool can do similar things, it’s better to use the built-in tools as they provide a better user experience and make it easier to review tool calls and give permission.\n\n# Instructions\n - If your command will create new directories or files, first use this tool to run `ls` to verify the parent directory exists and is the correct location.\n - Always quote file paths that contain spaces with double quotes in your command (e.g., cd \"path with spaces/file.txt\")\n - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it. In particular, never prepend `cd <current-directory>` to a `git` command — `git` already operates on the current working tree, and the compound triggers a permission prompt.\n - You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). By default, your command will timeout after 120000ms (2 minutes).\n - You can use the `run_in_background` parameter to run the command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. You do not need to check the output right away - you'll be notified when it finishes. You do not need to use '&' at the end of the command when using this parameter.\n - For git commands:\n  - Prefer to create a new commit rather than amending an existing commit.\n  - Before running destructive operations (e.g., git reset --hard, git push --force, git checkout --), consider whether there is a safer alternative that achieves the same goal. Only use destructive operations when they are truly the best approach.\n  - Never skip hooks (--no-verify) or bypass signing (--no-gpg-sign, -c commit.gpgsign=false) unless the user has explicitly asked for it. If a hook fails, investigate and fix the underlying issue.\n - Avoid unnecessary `sleep` commands:\n  - Do not sleep between commands that can run immediately — just run them.\n  - Use the Monitor tool to stream events from a background process (each stdout line is a notification). For one-shot \"wait until done,\" use Bash with run_in_background instead.\n  - If your command is long running and you would like to be notified when it finishes — use `run_in_background`. No sleep needed.\n  - Do not retry failing commands in a sleep loop — diagnose the root cause.\n  - If waiting for a background task you started with `run_in_background`, you will be notified when it completes — do not poll.\n  - Long leading `sleep` commands are blocked. To poll until a condition is met, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`) — you get a notification when the loop exits. Do not chain shorter sleeps to work around the block.\n - When running `find`, search from `.` (or a specific path), not `/` — scanning the full filesystem can exhaust system resources on large trees.\n - When using `find -regex` with alternation, put the longest alternative first. Example: use `'.*\\.\\(tsx\\|ts\\)'` not `'.*\\.\\(ts\\|tsx\\)'` — the second form silently skips `.tsx` files.\n\n\n# Committing changes with git\n\nOnly create commits when requested by the user. If unclear, ask first. When the user asks you to create a new git commit, follow these steps carefully:\n\nYou can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. The numbered steps below indicate which commands should be batched in parallel.\n\nGit Safety Protocol:\n- NEVER update the git config\n- NEVER run destructive git commands (push --force, reset --hard, checkout ., restore ., clean -f, branch -D) unless the user explicitly requests these actions. Taking unauthorized destructive actions is unhelpful and can result in lost work, so it's best to ONLY run these commands when given direct instructions \n- NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests it\n- NEVER run force push to main/master, warn the user if they request it\n- CRITICAL: Always create NEW commits rather than amending, unless the user explicitly requests a git amend. When a pre-commit hook fails, the commit did NOT happen — so --amend would modify the PREVIOUS commit, which may result in destroying work or losing previous changes. Instead, after hook failure, fix the issue, re-stage, and create a NEW commit\n- When staging files, prefer adding specific files by name rather than using \"git add -A\" or \"git add .\", which can accidentally include sensitive files (.env, credentials) or large binaries\n- NEVER commit changes unless the user explicitly asks you to. It is VERY IMPORTANT to only commit when explicitly asked, otherwise the user will feel that you are being too proactive\n\n1. Run the following bash commands in parallel, each using the Bash tool:\n  - Run a git status command to see all untracked files. IMPORTANT: Never use the -uall flag as it can cause memory issues on large repos.\n  - Run a git diff command to see both staged and unstaged changes that will be committed.\n  - Run a git log command to see recent commit messages, so that you can follow this repository's commit message style.\n2. Analyze all staged changes (both previously staged and newly added) and draft a commit message:\n  - Summarize the nature of the changes (eg. new feature, enhancement to an existing feature, bug fix, refactoring, test, docs, etc.). Ensure the message accurately reflects the changes and their purpose (i.e. \"add\" means a wholly new feature, \"update\" means an enhancement to an existing feature, \"fix\" means a bug fix, etc.).\n  - Do not commit files that likely contain secrets (.env, credentials.json, etc). Warn the user if they specifically request to commit those files\n  - Draft a concise (1-2 sentences) commit message that focuses on the \"why\" rather than the \"what\"\n  - Ensure it accurately reflects the changes and their purpose\n3. Run the following commands in parallel:\n   - Add relevant untracked files to the staging area.\n   - Create the commit with a message ending with:\n   Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>\n   - Run git status after the commit completes to verify success.\n   Note: git status depends on the commit completing, so run it sequentially after the commit.\n4. If the commit fails due to pre-commit hook: fix the issue and create a NEW commit\n\nImportant notes:\n- NEVER run additional commands to read or explore code, besides git bash commands\n- NEVER use the TaskCreate or Agent tools\n- DO NOT push to the remote repository unless the user explicitly asks you to do so\n- IMPORTANT: Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported.\n- IMPORTANT: Do not use --no-edit with git rebase commands, as the --no-edit flag is not a valid option for git rebase.\n- If there are no changes to commit (i.e., no untracked files and no modifications), do not create an empty commit\n- In order to ensure good formatting, ALWAYS pass the commit message via a HEREDOC, a la this example:\n<example>\ngit commit -m \"$(cat <<'EOF'\n   Commit message here.\n\n   Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>\n   EOF\n   )\"\n</example>\n\n# Creating pull requests\nUse the gh command via the Bash tool for ALL GitHub-related tasks including working with issues, pull requests, checks, and releases. If given a Github URL use the gh command to get the information needed.\n\nIMPORTANT: When the user asks you to create a pull request, follow these steps carefully:\n\n1. Run the following bash commands in parallel using the Bash tool, in order to understand the current state of the branch since it diverged from the main branch:\n   - Run a git status command to see all untracked files (never use -uall flag)\n   - Run a git diff command to see both staged and unstaged changes that will be committed\n   - Check if the current branch tracks a remote branch and is up to date with the remote, so you know if you need to push to the remote\n   - Run a git log command and `git diff [base-branch]...HEAD` to understand the full commit history for the current branch (from the time it diverged from the base branch)\n2. Analyze all changes that will be included in the pull request, making sure to look at all relevant commits (NOT just the latest commit, but ALL commits that will be included in the pull request!!!), and draft a pull request title and summary:\n   - Keep the PR title short (under 70 characters)\n   - Use the description/body for details, not the title\n3. Run the following commands in parallel:\n   - Create new branch if needed\n   - Push to remote with -u flag if needed\n   - Create PR using gh pr create with the format below. Use a HEREDOC to pass the body to ensure correct formatting.\n<example>\ngh pr create --title \"the pr title\" --body \"$(cat <<'EOF'\n## Summary\n<1-3 bullet points>\n\n## Test plan\n[Bulleted markdown checklist of TODOs for testing the pull request...]\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF\n)\"\n</example>\n\nImportant:\n- DO NOT use the TaskCreate or Agent tools\n- Return the PR URL when you're done, so the user can see it\n\n# Other common operations\n- View comments on a Github PR: gh api repos/foo/bar/pulls/123/comments",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "command": {
+            "description": "The command to execute",
+            "type": "string"
+          },
+          "timeout": {
+            "description": "Optional timeout in milliseconds (max 600000)",
+            "type": "number"
+          },
+          "description": {
+            "description": "Clear, concise description of what this command does in active voice. Never use words like \"complex\" or \"risk\" in the description - just describe what it does.\n\nFor simple commands (git, npm, standard CLI tools), keep it brief (5-10 words):\n- ls → \"List files in current directory\"\n- git status → \"Show working tree status\"\n- npm install → \"Install package dependencies\"\n\nFor commands that are harder to parse at a glance (piped commands, obscure flags, etc.), add enough context to clarify what it does:\n- find . -name \"*.tmp\" -exec rm {} \\; → \"Find and delete all .tmp files recursively\"\n- git reset --hard origin/main → \"Discard all local changes and match remote main\"\n- curl -s url | jq '.data[]' → \"Fetch JSON from URL and extract data array elements\"",
+            "type": "string"
+          },
+          "run_in_background": {
+            "description": "Set to true to run this command in the background.",
+            "type": "boolean"
+          },
+          "dangerouslyDisableSandbox": {
+            "description": "Set this to true to dangerously override sandbox mode and run commands without sandboxing.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "CronCreate",
+      "description": "Schedule a prompt to be enqueued at a future time. Use for both recurring schedules and one-shot reminders.\n\nUses standa\n[elided 2475 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cron": {
+            "description": "Standard 5-field cron expression in local time: \"M H DoM Mon DoW\" (e.g. \"*/5 * * * *\" = every 5 minutes, \"30 14 28 2 *\" = Feb 28 at 2:30pm local once).",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "The prompt to enqueue at each fire time.",
+            "type": "string"
+          },
+          "recurring": {
+            "description": "true (default) = fire on every cron match until deleted or auto-expired after 7 days. false = fire once at the next match, then auto-delete. Use false for \"remind me at X\" one-shot requests with pinned minute/hour/dom/month.",
+            "type": "boolean"
+          },
+          "durable": {
+            "description": "Has no effect — durable persistence is not available. All jobs are session-only (in-memory, gone when this Claude session ends).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cron",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "CronDelete",
+      "description": "Cancel a cron job previously scheduled with CronCreate. Removes it from the in-memory session store.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Job ID returned by CronCreate.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "CronList",
+      "description": "List all cron jobs scheduled via CronCreate in this session.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "DesignSync",
+      "description": "Read and update the user's claude.ai/design design-system projects through their claude.ai login (or, for sessions witho\n[elided 3604 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "list_projects",
+              "get_project",
+              "list_files",
+              "get_file",
+              "finalize_plan",
+              "write_files",
+              "delete_files",
+              "register_assets",
+              "unregister_assets",
+              "create_project",
+              "report_validate"
+            ]
+          },
+          "projectId": {
+            "description": "Required for all methods except list_projects and create_project",
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "description": "get_file: file path to read",
+            "type": "string",
+            "minLength": 1
+          },
+          "writes": {
+            "description": "finalize_plan: exact paths or glob patterns that will be written. `*` matches within a single segment, `**` matches any depth (e.g. `ui_kits/acme/**/*.html`). Max 3 `*`/`**` wildcards per pattern and max 256 entries — use broader globs to cover more files rather than enumerating paths.",
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "deletes": {
+            "description": "finalize_plan: exact paths or glob patterns that will be deleted (same syntax and limits as writes).",
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "planId": {
+            "description": "write_files/delete_files/register_assets/unregister_assets: token from a prior finalize_plan call",
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "description": "write_files: file contents to write (max 256 per call — split larger bundles across multiple write_files calls under the same planId).",
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "description": "Path within the project, e.g. components/button/index.html",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "localPath": {
+                  "description": "Path on disk to read file contents from, relative to the localDir approved at finalize_plan. Preferred for anything you have on disk: the tool reads, encodes, and uploads directly so the contents never enter the model context. Mutually exclusive with data.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "data": {
+                  "description": "Inline file contents (UTF-8 text, or base64 when encoding is \"base64\"). For small dynamic content only — anything you have on disk should use localPath instead.",
+                  "type": "string"
+                },
+                "encoding": {
+                  "description": "Set to \"base64\" for binary inline data",
+                  "type": "string",
+                  "enum": [
+                    "base64"
+                  ]
+                },
+                "mimeType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "paths": {
+            "description": "delete_files: paths to delete. unregister_assets: paths whose Design System pane card should be removed. Max 256 per call — split larger batches across multiple calls under the same planId.",
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "name": {
+            "description": "create_project: name for the new design-system project",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "assets": {
+            "description": "register_assets: cards to register in the Design System pane. Each path must be in the finalized plan. Run after write_files succeeds. Max 256 per call.",
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "description": "Short human-readable label (\"Primary buttons\"), not a path",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "path": {
+                  "description": "Project-relative path to the preview/spec file this card renders",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "subtitle": {
+                  "description": "Variants shown (\"Primary / secondary / ghost, 3 sizes\")",
+                  "type": "string",
+                  "maxLength": 255
+                },
+                "viewport": {
+                  "description": "Card dimensions in the Design System pane",
+                  "type": "object",
+                  "properties": {
+                    "width": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "height": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "width"
+                  ],
+                  "additionalProperties": false
+                },
+                "group": {
+                  "description": "Free-form section label for the Design System pane (max 64 chars). Use the source design system's own categorization if it has one — e.g. Material has Buttons/Cards/Forms/etc., a corporate kit might have Actions/Forms/Navigation. Common foundational labels: \"Type\", \"Colors\", \"Spacing\", \"Components\", \"Brand\". The pane groups by the value you send.",
+                  "type": "string",
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "name",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "localDir": {
+            "description": "finalize_plan: directory the bundle was built into. write_files with localPath may only read files inside this directory. Defaults to the current working directory. Resolved to an absolute path and shown in the permission prompt.",
+            "type": "string",
+            "minLength": 1
+          },
+          "counts": {
+            "description": "report_validate: aggregate from the final .render-check.json — counts only, no component names or paths.",
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "bad": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "thin": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "variantsIdentical": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "iterations": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "total",
+              "bad",
+              "thin",
+              "variantsIdentical",
+              "iterations"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Edit",
+      "description": "Performs exact string replacements in files.\n\nUsage:\n- You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.\n- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.\n- Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "description": "The absolute path to the file to modify",
+            "type": "string"
+          },
+          "old_string": {
+            "description": "The text to replace",
+            "type": "string"
+          },
+          "new_string": {
+            "description": "The text to replace it with (must be different from old_string)",
+            "type": "string"
+          },
+          "replace_all": {
+            "description": "Replace all occurrences of old_string (default false)",
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "EnterWorktree",
+      "description": "Use this tool ONLY when explicitly instructed to work in a worktree — either by the user directly, or by project instruc\n[elided 3100 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "description": "Optional name for a new worktree. Each \"/\"-separated segment may contain only letters, digits, dots, underscores, and dashes; max 64 chars total. A random name is generated if not provided. Mutually exclusive with `path`.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Path to an existing worktree to switch into instead of creating a new one. Must appear in `git worktree list` for the current repo — or, on first entry from the launch directory, for a repo nested inside it (multi-repo workspace). Mutually exclusive with `name`.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ExitWorktree",
+      "description": "Exit a worktree session created by EnterWorktree and return the session to the original working directory.\n\n## Scope\n\nTh\n[elided 1803 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "description": "\"keep\" leaves the worktree and branch on disk; \"remove\" deletes both.",
+            "type": "string",
+            "enum": [
+              "keep",
+              "remove"
+            ]
+          },
+          "discard_changes": {
+            "description": "Required true when action is \"remove\" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Monitor",
+      "description": "Start a background monitor that streams events from a long-running script. Each stdout line is an event — you keep worki\n[elided 6239 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "description": {
+            "description": "Short human-readable description of what you are monitoring (shown in notifications).",
+            "type": "string"
+          },
+          "timeout_ms": {
+            "description": "Kill the monitor after this deadline. Default 300000ms, max 3600000ms. Ignored when persistent is true.",
+            "default": 300000,
+            "type": "number",
+            "minimum": 1000
+          },
+          "persistent": {
+            "description": "Run for the lifetime of the session (no timeout). Use for session-length watches like PR monitoring or log tails. Stop with TaskStop.",
+            "default": false,
+            "type": "boolean"
+          },
+          "command": {
+            "description": "Shell command or script. Each stdout line is an event; exit ends the watch.",
+            "type": "string"
+          },
+          "ws": {
+            "description": "WebSocket to open. Each text frame is an event; binary frames are reported as a placeholder line. Socket close ends the watch. Cannot be combined with command.",
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "protocols": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                }
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "description",
+          "timeout_ms",
+          "persistent"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "NotebookEdit",
+      "description": "Replaces, inserts, or deletes a single cell in a Jupyter notebook (.ipynb file).\n\nUsage:\n- You must use the Read tool on\n[elided 499 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "notebook_path": {
+            "description": "The absolute path to the Jupyter notebook file to edit (must be absolute, not relative)",
+            "type": "string"
+          },
+          "cell_id": {
+            "description": "The ID of the cell to edit. When inserting a new cell, the new cell will be inserted after the cell with this ID, or at the beginning if not specified.",
+            "type": "string"
+          },
+          "new_source": {
+            "description": "The new source for the cell",
+            "type": "string"
+          },
+          "cell_type": {
+            "description": "The type of the cell (code or markdown). If not specified, it defaults to the current cell type. If using edit_mode=insert, this is required.",
+            "type": "string",
+            "enum": [
+              "code",
+              "markdown"
+            ]
+          },
+          "edit_mode": {
+            "description": "The type of edit to make (replace, insert, delete). Defaults to replace.",
+            "type": "string",
+            "enum": [
+              "replace",
+              "insert",
+              "delete"
+            ]
+          }
+        },
+        "required": [
+          "notebook_path",
+          "new_source"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "PushNotification",
+      "description": "This tool sends a desktop notification in the user's terminal. If Remote Control is connected, it also pushes to their p\n[elided 1242 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "message": {
+            "description": "The notification body. Keep it under 200 characters; mobile OSes truncate.",
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "const": "proactive"
+          }
+        },
+        "required": [
+          "message",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem. You can access any file directly by using this tool.\nAssume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.\n\nUsage:\n- The file_path parameter must be an absolute path, not a relative path\n- By default, it reads up to 2000 lines starting from the beginning of the file\n- When you already know which part of the file you need, only read that part. This can be important for larger files.\n- Results are returned using cat -n format, with line numbers starting at 1\n- This tool allows Claude Code to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as Claude Code is a multimodal LLM.\n- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you MUST provide the pages parameter to read specific page ranges (e.g., pages: \"1-5\"). Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request.\n- This tool can read Jupyter notebooks (.ipynb files) and returns all cells with their outputs, combining code, text, and visualizations.\n- This tool can only read files, not directories. To list files in a directory, use the registered shell tool.\n- You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.\n- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.\n- Do NOT re-read a file you just edited to verify — Edit/Write would have errored if the change failed, and the harness tracks file state for you.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "description": "The absolute path to the file to read",
+            "type": "string"
+          },
+          "offset": {
+            "description": "The line number to start reading from. Only provide if the file is too large to read at once",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages": {
+            "description": "Page range for PDF files (e.g., \"1-5\", \"3\", \"10-20\"). Only applicable to PDF files. Maximum 20 pages per request.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "RemoteTrigger",
+      "description": "Call the claude.ai remote-trigger API. Use this instead of curl — the OAuth token is added automatically in-process and \n[elided 542 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "get",
+              "create",
+              "update",
+              "run"
+            ]
+          },
+          "trigger_id": {
+            "description": "Required for get, update, and run",
+            "type": "string",
+            "pattern": "^[\\w-]+$"
+          },
+          "body": {
+            "description": "Required for create and update; optional for run",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ReportFindings",
+      "description": "Report code-review findings as a typed list so the host UI can render them. Use this only when the active code-review in\n[elided 454 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "level": {
+            "description": "Effort level the review ran at",
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          "findings": {
+            "description": "Verified findings, most-severe first; empty if none survived",
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "description": "Repo-relative path of the file the finding is in",
+                  "type": "string"
+                },
+                "line": {
+                  "description": "1-indexed line the finding anchors to",
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "summary": {
+                  "description": "One-sentence statement of the defect",
+                  "type": "string"
+                },
+                "short_summary": {
+                  "description": "Compressed label for compact UI (≤60 chars): the claim alone, no rationale or consequence clause",
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "failure_scenario": {
+                  "description": "Concrete inputs/state → wrong output/crash",
+                  "type": "string"
+                },
+                "category": {
+                  "description": "Short kebab-case slug of the finding type, e.g. \"correctness\", \"simplification\", \"efficiency\", \"test-coverage\"",
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "verdict": {
+                  "description": "Set when a verify pass ran; absent on inline-only reviews",
+                  "type": "string",
+                  "enum": [
+                    "CONFIRMED",
+                    "PLAUSIBLE"
+                  ]
+                },
+                "outcome": {
+                  "description": "Set ONLY when re-reporting after applying fixes: what happened to this finding",
+                  "type": "string",
+                  "enum": [
+                    "fixed",
+                    "skipped",
+                    "no_change_needed"
+                  ]
+                }
+              },
+              "required": [
+                "file",
+                "summary",
+                "failure_scenario"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "findings"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ScheduleWakeup",
+      "description": "Schedule when to resume work in /loop dynamic mode — the user invoked /loop without an interval, asking you to self-pace\n[elided 3028 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "delaySeconds": {
+            "description": "Seconds from now to wake up. Clamped to [60, 3600] by the runtime. Required unless `stop` is true.",
+            "type": "number"
+          },
+          "reason": {
+            "description": "One short sentence explaining the chosen delay. Goes to telemetry and is shown to the user. Be specific. Required unless `stop` is true.",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "The /loop input to fire on wake-up. Pass the same /loop input verbatim each turn so the next firing re-enters the skill and continues the loop. For autonomous /loop (no user prompt), pass the literal sentinel `<<autonomous-loop-dynamic>>` instead (the dynamic-pacing variant, not the CronCreate-mode `<<autonomous-loop>>`). Required unless `stop` is true.",
+            "type": "string"
+          },
+          "stop": {
+            "description": "Set to true to end the dynamic loop immediately instead of scheduling another wakeup. When true, all other fields are ignored and no further wakeups fire.",
+            "type": "boolean"
+          },
+          "noop": {
+            "description": "true = nothing changed (you checked and there is nothing to report). false = something happened worth keeping (edited a file, posted a message, advanced state, surfaced a finding). Consecutive noop:true ticks are collapsed in the user's terminal view and tracked as a streak. Required unless `stop` is true.",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "SendMessage",
+      "description": "# SendMessage\n\nSend a message to another agent.\n\n```json\n{\"to\": \"researcher\", \"summary\": \"assign task 1\", \"message\": \"st\n[elided 658 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "to": {
+            "description": "Recipient: teammate name",
+            "type": "string",
+            "pattern": "^[^\\n\\r]{0,200}$"
+          },
+          "summary": {
+            "description": "A 5-10 word summary shown as a one-line preview in the UI (required when message is a string). Longer summaries are truncated to 200 characters rather than rejected, and only the first line is shown.",
+            "type": "string",
+            "maxLength": 200
+          },
+          "message": {
+            "description": "Plain text message content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Skill",
+      "description": "Invoke a skill.\n\nA skill is a packaged set of instructions the user or project has set up for a particular kind of task \n[elided 1297 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "skill": {
+            "description": "The name of a skill from the available-skills list. Do not guess names.",
+            "type": "string"
+          },
+          "args": {
+            "description": "Optional arguments for the skill",
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskCreate",
+      "description": "Use this tool to create a structured task list for your current coding session. This helps you track progress, organize \n[elided 2026 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "subject": {
+            "description": "A brief title for the task",
+            "type": "string"
+          },
+          "description": {
+            "description": "What needs to be done",
+            "type": "string"
+          },
+          "activeForm": {
+            "description": "Present continuous form shown in spinner when in_progress (e.g., \"Running tests\")",
+            "type": "string"
+          },
+          "metadata": {
+            "description": "Arbitrary metadata to attach to the task",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "subject",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskGet",
+      "description": "Use this tool to retrieve a task by its ID from the task list.\n\n## When to Use This Tool\n\n- When you need the full descr\n[elided 612 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "description": "The ID of the task to retrieve",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskList",
+      "description": "Use this tool to list all tasks in the task list.\n\n## When to Use This Tool\n\n- To see what tasks are available to work o\n[elided 878 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskOutput",
+      "description": "DEPRECATED: Background tasks return their output file path in the tool result, and you receive a <task-notification> wit\n[elided 929 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "description": "The task ID to get output from",
+            "type": "string"
+          },
+          "block": {
+            "description": "Whether to wait for completion",
+            "default": true,
+            "type": "boolean"
+          },
+          "timeout": {
+            "description": "Max wait time in ms",
+            "default": 30000,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 600000
+          }
+        },
+        "required": [
+          "task_id",
+          "block",
+          "timeout"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskStop",
+      "description": "\n- Stops a running background task by its ID\n- Takes a task_id parameter identifying the task to stop\n- To stop an agent\n[elided 258 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "description": "The ID of the background task to stop. Agent-team teammates and named background agents are also accepted by agent ID or name.",
+            "type": "string"
+          },
+          "shell_id": {
+            "description": "Deprecated: use task_id instead",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "TaskUpdate",
+      "description": "Use this tool to update a task in the task list.\n\n## When to Use This Tool\n\n**Mark tasks as resolved:**\n- When you have \n[elided 2123 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "description": "The ID of the task to update",
+            "type": "string"
+          },
+          "subject": {
+            "description": "New subject for the task",
+            "type": "string"
+          },
+          "description": {
+            "description": "New description for the task",
+            "type": "string"
+          },
+          "activeForm": {
+            "description": "Present continuous form shown in spinner when in_progress (e.g., \"Running tests\")",
+            "type": "string"
+          },
+          "status": {
+            "description": "New status for the task",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed"
+                ]
+              },
+              {
+                "type": "string",
+                "const": "deleted"
+              }
+            ]
+          },
+          "addBlocks": {
+            "description": "Task IDs that this task blocks",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "addBlockedBy": {
+            "description": "Task IDs that block this task",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owner": {
+            "description": "New owner for the task",
+            "type": "string"
+          },
+          "metadata": {
+            "description": "Metadata keys to merge into the task. Set a key to null to delete it.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "WebFetch",
+      "description": "IMPORTANT: WebFetch WILL FAIL for authenticated or private URLs. Before using this tool, check if the URL points to an a\n[elided 1612 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "The URL to fetch content from",
+            "type": "string",
+            "format": "uri"
+          },
+          "prompt": {
+            "description": "The prompt to run on the fetched content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "WebSearch",
+      "description": "\n- Allows Claude to search the web and use the results to inform responses\n- Provides up-to-date information for current\n[elided 1202 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "description": "The search query to use",
+            "type": "string",
+            "minLength": 2
+          },
+          "allowed_domains": {
+            "description": "Only include search results from these domains",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocked_domains": {
+            "description": "Never include search results from these domains",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Workflow",
+      "description": "Execute a workflow script that orchestrates multiple subagents deterministically. Workflows run in the background — this\n[elided 19165 chars]",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "script": {
+            "description": "Self-contained workflow script. Must begin with `export const meta = { name, description, phases }` (pure literal, no computed values) followed by the script body using agent()/parallel()/pipeline()/phase().",
+            "type": "string",
+            "maxLength": 524288
+          },
+          "name": {
+            "description": "Name of a predefined workflow (built-in or from .claude/workflows/). Resolves to a self-contained script.",
+            "type": "string"
+          },
+          "description": {
+            "description": "Ignored — set the workflow description in the script's `meta` block.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Ignored — set the workflow title in the script's `meta` block.",
+            "type": "string"
+          },
+          "args": {
+            "description": "Optional input value exposed to the script as the global `args`, verbatim. Pass arrays/objects as actual JSON values, NOT as a JSON-encoded string — a stringified list breaks `args.filter`/`args.map` in the script. Use for parameterized named workflows (e.g. a research question)."
+          },
+          "scriptPath": {
+            "description": "Path to a workflow script file on disk. Every Workflow invocation persists its script under the session directory and returns the path in the tool result. To iterate, edit that file with Write/Edit and re-invoke Workflow with the same `scriptPath` instead of re-sending the full script. Takes precedence over `script` and `name`.",
+            "type": "string"
+          },
+          "resumeFromRunId": {
+            "description": "Run ID of a prior Workflow invocation to resume from. Completed agent() calls with unchanged (prompt, opts) return their cached results instantly; only edited or new calls re-run. Same-session only. Stop the prior run first (TaskStop) before resuming.",
+            "type": "string",
+            "pattern": "^wf_[a-z0-9-]{6,}$"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.\n- Prefer the Edit tool for modifying existing files — it only sends the diff. Only use this tool to create new files or for complete rewrites.\n- NEVER create documentation files (*.md) or README files unless explicitly requested by the User.\n- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "description": "The absolute path to the file to write (must be absolute, not relative)",
+            "type": "string"
+          },
+          "content": {
+            "description": "The content to write to the file",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "metadata": {
+    "user_id": "{\"device_id\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"account_uuid\":\"00000000-0000-0000-0000-000000000000\",\"session_id\":\"1b7675ef-40d3-4541-b5fa-7d8e839c32d2\"}"
+  },
+  "max_tokens": 32000,
+  "thinking": {
+    "budget_tokens": 31999,
+    "type": "enabled",
+    "display": "omitted"
+  },
+  "context_management": {
+    "edits": [
+      {
+        "type": "clear_thinking_20251015",
+        "keep": "all"
+      }
+    ]
+  },
+  "stream": true
+}

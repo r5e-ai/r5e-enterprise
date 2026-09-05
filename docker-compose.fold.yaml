@@ -1,0 +1,52 @@
+# Compatibility override for the former opt-in fold quickstart.
+#
+# A compose OVERRIDE, never a stack on its own:
+#
+#   cd r5e-enterprise
+#   python3 scripts/prepare-release.py
+#   docker compose -p r5e-fold -f docker-compose.yaml -f docker-compose.fold.yaml build
+#   docker compose -p r5e-fold -f docker-compose.yaml -f docker-compose.fold.yaml up -d
+#
+# The default stack now builds from a frozen three-repository context and
+# requires kernel admission. This override keeps the historical image and
+# container names for operators who still use the old command.
+#
+# Run it as a SEPARATE PROJECT (`-p r5e-fold`) with its own host ports if
+# the public stack is up: the public one owns `recurse-gateway`, its named
+# volumes and 4000/4443 (or whatever .env says), and this one must collide
+# with none of them —
+#
+#   R5E_GATEWAY_PORT=4200 R5E_PROXY_PORT=4444 docker compose -p r5e-fold ... up -d
+#
+# The image contains the r5e kernel booted over the
+# `kernel` volume at /data/kernel (log, CAS, resource store, the node /
+# retention / fold keys), the fold key endorsed for its eleven Kinds at
+# boot, the nine gateway Kinds + default PolicyBundle + three PolicyShapes
+# seeded, and `/readyz` gaining a read-only "fold" block. Model and tool
+# operations depend on its durable admission decision.
+
+volumes:
+  # The kernel's data dir: its hash-chained log, CAS, resource store and
+  # the three ed25519 keys under keys/. The only place the kernel writes;
+  # `docker compose -p r5e-fold down -v` destroys the chain and the keys.
+  kernel:
+
+services:
+  gateway:
+    build:
+      context: "${R5E_BUILD_CONTEXT:-.release-context}"
+      dockerfile: r5e-enterprise/Dockerfile
+    image: "${R5E_GATEWAY_IMAGE:-r5e/gateway:fold}"
+    # Not `recurse-gateway`: that name belongs to the public stack, which
+    # may be running beside this one.
+    container_name: recurse-gateway-fold
+    environment:
+      # --- the fold (spec 012 S9a) ---
+      R5E_FOLD_ENABLED: "${R5E_FOLD_ENABLED:-true}"
+      R5E_FOLD_DATA_DIR: /data/kernel
+      # The kernel's own HTTP read surface stays unbound; /readyz and
+      # `bin/audit_console rpc` are the surfaces. Set true to bind 4546
+      # inside the container (still unpublished).
+      R5E_FOLD_START_SERVER: "${R5E_FOLD_START_SERVER:-false}"
+    volumes:
+      - kernel:/data/kernel

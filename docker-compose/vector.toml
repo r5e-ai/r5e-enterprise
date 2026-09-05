@@ -1,0 +1,56 @@
+# Vector reference config for Recurse Standalone AI Gateway
+# F002 FR-024 + FR-026. Splunk HEC sink is commented out by default;
+# uncomment + fill `endpoint` and `default_token` to enable.
+#
+# Pinned verbatim from specs/002-standalone-gateway-vertical-slice/contracts/vector_sidecar_config.md.
+
+data_dir = "/var/lib/vector"
+
+[api]
+enabled = true
+address = "0.0.0.0:8686"
+
+# Source: tail the recurse-gateway container's stdout
+[sources.gateway_stdout]
+type = "docker_logs"
+include_containers = ["recurse-gateway"]
+docker_host = "unix:///var/run/docker.sock"
+
+# Optional transform example (disabled by default).
+# Uncomment to add deployment tags or redact fields.
+# [transforms.tag_env]
+# type = "remap"
+# inputs = ["gateway_stdout"]
+# source = '''
+#   .env = "prod"
+# '''
+
+# Sink 1: console (always on, useful for local dev).
+[sinks.console]
+type = "console"
+inputs = ["gateway_stdout"]
+encoding.codec = "json"
+
+# Sink 2: Splunk HEC — UNCOMMENT + FILL to enable.
+# [sinks.splunk]
+# type = "splunk_hec_logs"
+# inputs = ["gateway_stdout"]
+# endpoint = "https://http-inputs-<tenant>.splunkcloud.com:443"
+# default_token = "<your-hec-token>"
+# source = "recurse:gateway"
+# sourcetype = "recurse:attestation:v1"
+# index = "recurse_audit"
+# indexed_fields = ["tenant_id", "run_id", "principal.recurse_role", "policy_decision", "verification_level", "tier_completeness_advisory"]
+# compression = "gzip"
+# tls.verify_certificate = true
+# # tls.ca_file = "/etc/vector/tls/ca.pem"   # for self-signed on-prem
+#
+# buffer.type = "disk"
+# buffer.max_size = 268435456              # 256 MiB
+# buffer.when_full = "block"                # backpressure to Gateway stdout; visible condition
+#
+# request.retry_max_duration_secs = 3600    # retry up to an hour
+# request.retry_initial_backoff_secs = 1
+# request.retry_max_backoff_secs = 30
+
+# Sink 3 (optional): Datadog, Fluent-forward, generic HTTP — see vector.dev/docs/reference/configuration/sinks/

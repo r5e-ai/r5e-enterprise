@@ -1,0 +1,144 @@
+# ---------------------------------------------------------------------------
+# REFERENCE ONLY — the AWS / WorkOS / split-broker compose stack (F002 T007).
+#
+# Moved here from the repo root by spec 012 (Compose quickstart) on
+# 2026-09-02. It was never runnable from a clean checkout: it expects an AWS
+# account (S3 + KMS), a WorkOS or Okta tenant, a broker image with no
+# Dockerfile in this repo, and tier-config files that no longer exist. It is
+# kept as documentation of the managed-SaaS wiring (env names, volumes,
+# Vector sidecar) for operators porting that shape to Kubernetes. The
+# supported local stack is the root `docker-compose.yaml`
+# (postgres + gateway, zero cloud) — see README.md.
+# ---------------------------------------------------------------------------
+
+# Recurse Standalone AI Gateway — reference Docker Compose stack (F002 T007).
+#
+# Brings up: Postgres 15, the Gateway, the Standalone Identity Broker, and a
+# Vector sidecar tailing Gateway stdout. See specs/002-standalone-gateway-vertical-slice/quickstart.md.
+#
+# This is a DEV-FIRST reference. Production hardening (TLS termination, secret
+# mounting via a proper secrets store, restart policies tuned per-service,
+# resource limits) lives in docs/operator/install.md.
+#
+# Env files `.env.gateway` / `.env.broker` are the operator's copies of
+# `docker-compose/gateway.env.example` / `docker-compose/broker.env.example`.
+
+name: recurse
+
+networks:
+  recurse_net:
+    driver: bridge
+
+volumes:
+  pg_data:
+  vector_data:
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: recurse-postgres
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-recurse}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-recurse}"
+      POSTGRES_DB: "${POSTGRES_DB:-recurse}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - recurse_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-recurse} -d ${POSTGRES_DB:-recurse}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  recurse-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: recurse/gateway:dev
+    container_name: recurse-gateway
+    env_file:
+      - .env.gateway
+    # F004 T011 — additional env-var pass-through for the audit console.
+    # GATEWAY_ADMIN_SESSION_SECRET_KEY_BASE is the symmetric key for the
+    # browser-session cookie envelope (Plug.Crypto.MessageEncryptor).
+    # OKTA_CLIENT_ID / OKTA_CLIENT_SECRET drive the OIDC PKCE flow at
+    # /admin/login/start + /admin/login/callback (browser_oidc_flow.md).
+    # All three are sourced from the operator's .env.gateway file.
+    environment:
+      GATEWAY_ADMIN_SESSION_SECRET_KEY_BASE: "${GATEWAY_ADMIN_SESSION_SECRET_KEY_BASE:-}"
+      OKTA_CLIENT_ID: "${OKTA_CLIENT_ID:-}"
+      OKTA_CLIENT_SECRET: "${OKTA_CLIENT_SECRET:-}"
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./policy:/etc/recurse/policy:ro
+      - ./tier-config.yaml:/etc/recurse/tier-config.yaml:ro
+      - ./tier-config.sha256:/etc/recurse/tier-config.sha256:ro
+      # F004 T011 — SPA static-asset bind-mount (dev convenience).
+      # In production releases the SPA ships baked into the Gateway image
+      # via `pnpm run sync-to-priv` running during the release build, so
+      # this mount is only meaningful for the dev compose stack. Comment
+      # out (or remove) for production deployments.
+      - ./apps/recurse_gateway/priv/static/admin:/app/lib/recurse_gateway/priv/static/admin:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - recurse_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  recurse-broker:
+    build:
+      context: ./apps/recurse_broker
+      dockerfile: Dockerfile
+    image: recurse/broker:dev
+    container_name: recurse-broker
+    env_file:
+      - .env.broker
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./broker-role-mapping.yaml:/etc/recurse/broker/role-mapping.yaml:ro
+      - ./secrets/broker-signing-key.pem:/secrets/broker-signing-key.pem:ro
+    networks:
+      - recurse_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4001/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  vector:
+    image: timberio/vector:0.44.0-alpine
+    container_name: recurse-vector
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker-compose/vector.toml:/etc/vector/vector.toml:ro
+      - vector_data:/var/lib/vector
+    depends_on:
+      - recurse-gateway
+    networks:
+      - recurse_net
+    # Vector's admin API (configured in vector.toml) exposes /health on :8686.
+    # Multi-arch manifest (verified via `docker buildx imagetools inspect
+    # timberio/vector:0.44.0-alpine`) covers linux/amd64 + linux/arm64
+    # + linux/arm/v{6,7}, so the healthcheck binary selection is uniform.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8686/health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped

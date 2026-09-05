@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/export_request.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "export_request",
+  "description": "Request body for POST /v1/audit/export (F002 T061 / FR-022). Parsed by Recurse.Gateway.AuditPlane.ExportHandler.parse_run_ids/1. Per MR !51 the SPA wire shape is {run_ids: [<run_id>, ...]} (max 100). Single-run-id export is the SPA's Receipt Detail 'Download Export Evidence' CTA; multi-run-id is the SPA's BulkActionBar follow-up flow (post F3 retire). Response is synchronous Content-Type: application/zip; see export_response.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_ids"],
+  "properties": {
+    "run_ids": {
+      "type": "array",
+      "description": "Non-empty list of run_ids to bundle. Backend caps at 100 per call; over-cap returns 400 ERR_BAD_REQUEST.",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "description": "Receipt run_id; backend looks each up via Repo.get(Attestation, run_id)."
+      }
+    }
+  }
+}

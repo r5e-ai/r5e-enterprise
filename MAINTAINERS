@@ -1,0 +1,3 @@
+# One account login per line, bare, exactly as CI reports it (GITLAB_USER_LOGIN on GitLab,
+# the pull-request author login on GitHub). scripts/check-contribution-signing.sh matches whole lines.
+r5e-tjones

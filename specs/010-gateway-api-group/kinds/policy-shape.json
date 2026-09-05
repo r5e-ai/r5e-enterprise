@@ -1,0 +1,87 @@
+{
+  "group": "gateway.r5e.io",
+  "kind": "PolicyShape",
+  "version": "v1alpha1",
+  "substrate": "resource",
+  "naming": {
+    "mode": "derived",
+    "derive": "{engine}.{kind}",
+    "readmitBy": "actorOfRecord"
+  },
+  "description": "How instances of one Kind are presented to a policy engine: an action, a resource, and context, each a path into the instance or a literal (grammar in schema-lite-v2 \u00a78). Presentation, not authority. Named `<engine>.<target Kind path>`, or `<engine>.*` for the fallback.",
+  "schema": {
+    "required": [
+      "kind",
+      "engine",
+      "action",
+      "resourceType",
+      "resourceId"
+    ],
+    "properties": {
+      "kind": {
+        "type": "string",
+        "pattern": "([a-z0-9.-]+/v[0-9a-z]+/[A-Za-z0-9]+|\\*)"
+      },
+      "engine": {
+        "type": "string",
+        "enum": [
+          "cedar"
+        ]
+      },
+      "action": {
+        "type": "string"
+      },
+      "resourceType": {
+        "type": "string"
+      },
+      "resourceId": {
+        "type": "string"
+      },
+      "context": {
+        "type": "object",
+        "values": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "whenAbsent": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "deny"
+              ]
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "description": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "nonEmpty": [
+      "action",
+      "resourceType",
+      "resourceId"
+    ]
+  },
+  "epistemicScope": {
+    "claims": [
+      "this presentation for the named Kind and engine was submitted by the recorded actor and admitted at the recorded position on the chain",
+      "from that position until the next admission under the same name, receipts for that Kind cite this shape's address, and their evaluation records were built from it",
+      "the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain \u2014 both re-derivable offline from the bundle alone"
+    ],
+    "doesNotClaim": [
+      "that the engine is correct",
+      "that the shape expresses anyone's intent",
+      "that any person, office, or organization holds the key that signed \u2014 the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin"
+    ]
+  },
+  "predicates": [],
+  "requiresAuthority": true
+}

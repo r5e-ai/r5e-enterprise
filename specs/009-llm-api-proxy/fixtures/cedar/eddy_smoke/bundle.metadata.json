@@ -1,0 +1,28 @@
+{
+  "name": "eddy_smoke",
+  "version": "0.1.0",
+  "spec": "009-llm-api-proxy",
+  "phase": "3.8",
+  "task": "T074",
+  "rules": [
+    {
+      "id": "permit_all_else",
+      "effect": "permit",
+      "applies_to": "all"
+    },
+    {
+      "id": "rule_no_destructive",
+      "effect": "forbid",
+      "applies_to": {
+        "action": "Action::\"invoke_tool\"",
+        "resource": "ToolUse::\"shell\""
+      },
+      "guard": "context.tool_args.command like \"*rm -rf*\""
+    }
+  ],
+  "notes": [
+    "Used by the eddy_smoke_test E2E (T075) to validate that the Cedar gate fires deny on `rm -rf` and allow on `ls`.",
+    "Loaded into PolicyBundleRef directly in tests — does not require BundleLoader/OciPolicyProvider plumbing.",
+    "Exercised against the canonical OpenAI Responses event stream produced by the parser; tool_args is inlined into the Cedar context per build_cedar_context/2."
+  ]
+}

@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/audit_receipts_list_response.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "audit_receipts_list_response",
+  "description": "Response body for GET /v1/audit/receipts. Mirrors the post-MR-!72 shape produced by Recurse.Gateway.AuditPlane.ReceiptsHandler.render_response/4 (F002 + F004 + issue #44 facets fix). The receipts array contains the F001 split-envelope shape (signed_predicate + outer_container) per ReceiptSerializers.signed_predicate/2 and outer_container/2 (default opts — heavy bytes excluded; the SPA's Verify-Locally flow fetches them on demand). The cursor is opaque server-signed pagination state; null when no more pages. The optional facets object is present iff the request set ?facets=true and carries per-axis counts over the FULL filtered universe (not just the paginated page) per FR-012 + issue #44; SPA dashboard reads these into the left-rail picker.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["receipts", "cursor"],
+  "properties": {
+    "receipts": {
+      "type": "array",
+      "description": "Page of receipts in the F001 split-envelope shape.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["run_id", "signed_predicate", "outer_container"],
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Stable receipt identifier — UUID/ULID. Hoisted to the row's top level for SPA convenience; matches signed_predicate.run_id."
+          },
+          "signed_predicate": {
+            "type": "object",
+            "description": "DSSE-bound predicate fields per ReceiptSerializers.signed_predicate/2 default opts. tool_name + tool_summary are non-signed B7 row metadata; everything else is part of the signed bytes.",
+            "additionalProperties": false,
+            "required": [
+              "run_id",
+              "session_id",
+              "turn_id",
+              "event_kind",
+              "machine_identity",
+              "principal",
+              "tenant_id",
+              "policy_canonical_hash",
+              "payload_hash",
+              "payload_uri",
+              "correlation_id",
+              "signer_kms_key_id",
+              "signer_key_version",
+              "timestamp",
+              "tool_name",
+              "tool_summary"
+            ],
+            "properties": {
+              "run_id": {"type": "string"},
+              "session_id": {"type": ["string", "null"]},
+              "turn_id": {"type": ["string", "null"]},
+              "event_kind": {"type": ["string", "null"], "description": "Atom-stringified canonical event kind (llm_call, tool_call, ui_query, ...)."},
+              "machine_identity": {
+                "type": ["object", "null"],
+                "description": "JSON object with observed-JWT identity fields; backend stores as JSONB (:map). NOT a string — the pre-codegen hand-maintained TS type incorrectly typed this as string|null (issue #48 retiring F2)."
+              },
+              "principal": {
+                "type": ["object", "null"],
+                "description": "JSON object with principal kind/subject/account_id; backend stores as JSONB (:map). NOT a string — hand-maintained TS type drift fixed in #48."
+              },
+              "tenant_id": {"type": ["string", "null"]},
+              "policy_canonical_hash": {"type": ["string", "null"], "description": "Lowercase hex-encoded SHA-256."},
+              "payload_hash": {"type": ["string", "null"], "description": "Lowercase hex-encoded SHA-256."},
+              "payload_uri": {"type": ["string", "null"]},
+              "correlation_id": {"type": ["string", "null"]},
+              "signer_kms_key_id": {"type": ["string", "null"], "description": "Real KMS ARN OR observed:// synthetic marker per F13."},
+              "signer_key_version": {"type": ["string", "null"]},
+              "timestamp": {"type": ["string", "null"], "format": "date-time"},
+              "tool_name": {"type": ["string", "null"], "description": "B7 — non-signed UI metadata; populated for tool_call rows by the importer."},
+              "tool_summary": {"type": ["string", "null"], "description": "B7 — non-signed redacted 1-line tool summary; populated for tool_call rows."}
+            }
+          },
+          "outer_container": {
+            "type": "object",
+            "description": "Non-signed receipt container per ReceiptSerializers.outer_container/2 default opts.",
+            "additionalProperties": false,
+            "required": [
+              "verification_level",
+              "tier_completeness_advisory",
+              "session_chain_epoch",
+              "session_chain_root",
+              "policy_decision",
+              "outcome",
+              "upstream_status_code",
+              "commit_retry_exhausted",
+              "tags"
+            ],
+            "properties": {
+              "verification_level": {
+                "type": ["string", "null"],
+                "enum": ["signed", "local_inclusion_verified", "global_inclusion_verified", null]
+              },
+              "tier_completeness_advisory": {
+                "type": ["string", "null"],
+                "enum": ["partial", "full", null]
+              },
+              "session_chain_epoch": {"type": ["integer", "null"]},
+              "session_chain_root": {"type": ["string", "null"], "description": "Lowercase hex-encoded 32-byte session chain root."},
+              "policy_decision": {
+                "type": ["string", "null"],
+                "enum": ["allow", "deny", null]
+              },
+              "outcome": {"type": ["string", "null"]},
+              "upstream_status_code": {"type": ["integer", "null"]},
+              "commit_retry_exhausted": {"type": ["boolean", "null"]},
+              "tags": {
+                "type": ["object", "null"],
+                "description": "Tool-call extractor enriched tags (schema-on-read). Top-level keys are stable (`category`, `tool_kind`, `verb`, `argument_body`, `display_summary`, `scope_kind`, `scope_value`, `target_resources`, `semantic_args`); `semantic_args` is the per-category flex space (e.g. `{verb, subverb, writes, target_paths}` for Bash; `{server, tool, time_window_*, metric}` for MCP). NOT part of the signed predicate. NULL for non-tool_call rows AND for tool_call rows imported before the extractor pipeline existed. Extractor v2 (issue #62, 2026-04-30) promoted `tool_kind`/`verb`/`argument_body` to top-level so Cedar policies and dashboard facets can address them directly without descending into `semantic_args`.",
+                "additionalProperties": true,
+                "properties": {
+                  "category": {
+                    "type": ["string", "null"],
+                    "description": "Coarse classification: `subprocess_exec`, `file_write`, `file_read`, `file_search`, `network_egress`, `mcp_tool_call`, `agent_dispatch`, `todo_management`, `notebook_edit`, `unknown`, `malformed`."
+                  },
+                  "tool_kind": {
+                    "type": ["string", "null"],
+                    "description": "Coarse tool family for facets/Cedar attribute lookups: `bash`, `edit`, `read`, `search`, `webfetch`, `mcp`, `agent`, `todo`, `notebook_edit`, `unknown`. Stable across extractors."
+                  },
+                  "verb": {
+                    "type": ["string", "null"],
+                    "description": "Action verb. Bash → first command token (`echo`, `git`, `rm`); Edit/Write/MultiEdit/NotebookEdit → `patch`; Read → `cat`; Glob → `glob`; Grep → `grep`; WebFetch → `get`; WebSearch → `search`; MCP → tool name (e.g. `query_metrics`); Task/Agent → `dispatch`; TodoWrite → `todo`; unknown → null."
+                  },
+                  "argument_body": {
+                    "type": ["string", "null"],
+                    "description": "Structured action subject. Bash → command minus the verb token; Edit/Write/MultiEdit/Read/NotebookEdit → file path; Glob/Grep → pattern; WebFetch → URL; WebSearch → query; MCP → JSON-encoded input args; Task/Agent → `subagent_type: <kind>`; TodoWrite → `<count> todos`; unknown → null."
+                  },
+                  "display_summary": {"type": ["string", "null"]},
+                  "scope_kind": {"type": ["string", "null"]},
+                  "scope_value": {"type": ["string", "null"]},
+                  "target_resources": {
+                    "type": ["array", "null"],
+                    "items": {"type": "string"}
+                  },
+                  "semantic_args": {
+                    "type": ["object", "null"],
+                    "additionalProperties": true,
+                    "description": "Per-category flex space; key set varies. See `Recurse.Gateway.Extractors.ClaudeCodeJsonl` moduledoc for the per-category contract."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "cursor": {
+      "type": ["string", "null"],
+      "description": "Opaque server-signed cursor for the next page; null when no more pages."
+    },
+    "facets": {
+      "type": "object",
+      "description": "Per-axis counts over the FULL filtered universe (not just this page). Present iff the request set ?facets=true. Each axis is a string→count map; kinds with zero rows are ABSENT from the map (the SPA fills the canonical enum at count 0). Issue #44 (2026-04-30).",
+      "additionalProperties": false,
+      "required": ["event_kind", "policy_decision", "verification_level"],
+      "properties": {
+        "event_kind": {
+          "type": "object",
+          "additionalProperties": {"type": "integer"}
+        },
+        "policy_decision": {
+          "type": "object",
+          "additionalProperties": {"type": "integer"}
+        },
+        "verification_level": {
+          "type": "object",
+          "additionalProperties": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+# Rustler NIF for SPIFFE Workload API client (research D7).
+#
+# Wraps the `spiffe` 0.13.0 crate (description: "Core SPIFFE identity types and Workload API
+# sources"). Phase-1 scope: X.509 + JWT SVID fetch, trust-bundle retrieval, SVID validation.
+#
+# Out-of-scope for Phase 1 per D7 scope-boundary note:
+#   - `spire-api` (Delegated Identity API) — Phase-2 reserved; relevant for intent-aware JIT
+#      minting when FR-051's successor lands
+#   - `spire-rustls` / `spiffe-rustls` (Rust-side mTLS) — Phase-2 reserved; Phase 1 terminates
+#      mTLS on the BEAM side via Bandit
+#
+# OBO (FR-026 + FR-047) is handled at the PRINCIPAL layer via RFC 8693 token exchange — NOT at
+# the SVID layer via SPIRE Delegated Identity. See D7 for the distinction.
+
+[package]
+name = "recurse_spiffe"
+version = "0.1.0"
+edition = "2021"
+authors = ["Recurse Engineering"]
+# This crate is r5e-enterprise code, not protocol surface: it takes the
+# repository licence. The protocol is Apache-2.0 and lives in r5e-core.
+license = "AGPL-3.0-only"
+publish = false
+description = "Rustler NIF exposing SPIFFE Workload API (SVID fetch + validation) to the BEAM"
+
+[lib]
+name = "recurse_spiffe"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.37"
+spiffe = "0.13"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net"] }
+
+[profile.release]
+lto = true
+codegen-units = 1

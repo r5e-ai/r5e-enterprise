@@ -1,0 +1,486 @@
+#!/usr/bin/env bash
+# r5e — helper for the local Docker Compose quickstart (spec 012).
+#
+#   bin/r5e init                copy .env.example -> .env, generate secrets
+#   bin/r5e status              GET /healthz and /readyz
+#   bin/r5e login [subject]     mint a dev-login cookie, print dashboard URL
+#   bin/r5e claude-code setup   (S2) point Claude Code at the gateway
+#   bin/r5e evidence export [--latest | --run-id ID] [--out FILE]
+#                               (S6) POST /v1/audit/export for one receipt -> zip
+#   bin/r5e evidence verify [FILE]
+#                               (S6) run docs/auditor/recurse-verify on the zip
+#   bin/r5e evidence export --fold [--out DIR]
+#                               (S9c) export the FOLD's chain from the container
+#   bin/r5e evidence verify --fold [DIR]
+#                               (S9c) run the KERNEL's recurse_verify on that export
+#
+# The last two are a SECOND evidence path over different bytes, checked by
+# a different verifier. See docs/fold-evidence.md; neither verifier reads
+# the other's export.
+#
+# Only stock tools: bash, curl, openssl (+ jq and unzip for `evidence`,
+# docker for `evidence ... --fold`). Cookie jar and default export paths
+# live in .r5e/ (git-ignored).
+set -euo pipefail
+# Everything this script creates holds secrets (.env and its temp file, the
+# cookie jar): owner-only from the moment the file exists.
+umask 077
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Read one KEY=value from .env without sourcing it (values are not shell-quoted).
+env_file_get() {
+  [ -f "${REPO_ROOT}/.env" ] || return 0
+  awk -v k="$1" -F= '$1==k {sub(/^[^=]*=/, ""); print; exit}' "${REPO_ROOT}/.env"
+}
+
+GATEWAY_PORT="${R5E_GATEWAY_PORT:-$(env_file_get R5E_GATEWAY_PORT)}"
+GATEWAY_URL="${R5E_GATEWAY_URL:-http://localhost:${GATEWAY_PORT:-4000}}"
+# The proxy port `claude-code setup` prints: the shell wins, then .env.
+PROXY_PORT="${R5E_PROXY_PORT:-$(env_file_get R5E_PROXY_PORT)}"
+STATE_DIR="${R5E_STATE_DIR:-${REPO_ROOT}/.r5e}"
+COOKIE_JAR="${STATE_DIR}/cookies.txt"
+
+usage() {
+  sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { echo "r5e: '$1' is required but not in PATH" >&2; exit 3; }
+}
+
+# Is something already listening on host port $1? lsof where present, else nc;
+# with neither the check is skipped (compose will report the clash itself).
+port_in_use() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  elif command -v nc >/dev/null 2>&1; then
+    nc -z 127.0.0.1 "$1" >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
+# The two host ports compose publishes must be free before `docker compose
+# up -d`; name the variable to set in .env when one is not.
+check_ports() {
+  local gp pp clash=0
+  gp="${R5E_GATEWAY_PORT:-$(env_file_get R5E_GATEWAY_PORT)}"
+  pp="${R5E_PROXY_PORT:-$(env_file_get R5E_PROXY_PORT)}"
+  if port_in_use "${gp:-4000}"; then
+    echo "r5e init: port ${gp:-4000} (dashboard) is already in use; set R5E_GATEWAY_PORT=<free port> in .env"
+    clash=1
+  fi
+  if port_in_use "${pp:-4443}"; then
+    echo "r5e init: port ${pp:-4443} (LLM proxy) is already in use; set R5E_PROXY_PORT=<free port> in .env"
+    clash=1
+  fi
+  return $clash
+}
+
+# Replace `KEY=...` in .env with a freshly generated value (in place, portable sed).
+fill_secret() {
+  local key="$1" value
+  value="$(openssl rand -hex 32)"
+  local tmp="${REPO_ROOT}/.env.tmp.$$"
+  awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k {print k "=" v; next} {print}' \
+    "${REPO_ROOT}/.env" > "$tmp" && mv "$tmp" "${REPO_ROOT}/.env"
+}
+
+cmd_init() {
+  need openssl
+  if [ -f "${REPO_ROOT}/.env" ] && [ "${1:-}" != "--force" ]; then
+    echo "r5e init: .env already exists; not overwriting (use --force to regenerate)"
+    exit 0
+  fi
+  cp "${REPO_ROOT}/.env.example" "${REPO_ROOT}/.env"
+  # fill_secret rewrites .env via a fresh temp file + mv, so the final file is
+  # created under umask 077 (mode 0600) even when --force replaced an old one.
+  fill_secret SECRET_KEY_BASE
+  fill_secret GATEWAY_ADMIN_SESSION_SECRET_KEY_BASE
+  echo "r5e init: wrote .env with generated SECRET_KEY_BASE + GATEWAY_ADMIN_SESSION_SECRET_KEY_BASE"
+  check_ports || true
+  echo "next: docker compose up -d"
+}
+
+# Exit 0 when /healthz is ok and /readyz is either ready or pending only on
+# jwks_warm (the JWKS cache fills at the first login, so right after `up`
+# that one check is expected to be pending). Anything else exits 1 with
+# the body printed.
+cmd_status() {
+  need curl
+  local rc=0
+  for path in /healthz /readyz; do
+    printf '%-8s ' "$path"
+    if body="$(curl -fsS --max-time 5 "${GATEWAY_URL}${path}" 2>/dev/null)"; then
+      echo "$body"
+    else
+      body="$(curl -sS --max-time 5 "${GATEWAY_URL}${path}" 2>/dev/null || true)"
+      if [ "$path" = /readyz ] && printf '%s' "$body" | grep -q '"jwks_warm":"pending' \
+         && [ "$(printf '%s' "$body" | grep -o '"pending' | wc -l | tr -d ' ')" = 1 ]; then
+        echo "not ready: jwks_warm pending until the first login (bin/r5e login)"
+      else
+        echo "UNREACHABLE or non-2xx (${GATEWAY_URL}${path})"
+        [ -n "$body" ] && printf '%s\n' "$body" | sed 's/^/         /'
+        rc=1
+      fi
+    fi
+  done
+  return $rc
+}
+
+cmd_login() {
+  need curl
+  local subject="${1:-local-dev@r5e}"
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  : > "$COOKIE_JAR"
+  local body
+  body="$(printf '{"principal_subject":"%s","recurse_role":"platform_operator"}' "$subject")"
+  local resp
+  if ! resp="$(curl -fsS --max-time 10 -c "$COOKIE_JAR" \
+        -H 'Content-Type: application/json' \
+        -X POST "${GATEWAY_URL}/admin/test/login" -d "$body")"; then
+    echo "r5e login: POST ${GATEWAY_URL}/admin/test/login failed." >&2
+    echo "  Is the stack up (bin/r5e status)? Is R5E_DEV_LOGIN_ENABLED=true in .env?" >&2
+    exit 1
+  fi
+  echo "r5e login: $resp"
+  if grep -q r5e_session "$COOKIE_JAR"; then
+    local me
+    me="$(curl -fsS --max-time 5 -b "$COOKIE_JAR" "${GATEWAY_URL}/v1/auth/me" 2>/dev/null || true)"
+    [ -n "$me" ] && echo "r5e login: /v1/auth/me -> $me"
+    # A JWT-validated call: proves the cookie works for the audit API and
+    # warms the gateway's JWKS cache (what /readyz's jwks_warm waits for).
+    receipts_status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -b "$COOKIE_JAR" \
+      "${GATEWAY_URL}/v1/audit/receipts?limit=1" 2>/dev/null || echo 000)"
+    echo "r5e login: GET /v1/audit/receipts?limit=1 -> HTTP ${receipts_status}"
+    echo
+    echo "cookie jar: ${COOKIE_JAR} (curl -b ${COOKIE_JAR} ${GATEWAY_URL}/v1/audit/receipts)"
+    echo "dashboard:  ${GATEWAY_URL}/admin/dashboard"
+    echo "  The cookie above is in curl's jar, not in your browser. To sign the browser in:"
+    echo "  open ${GATEWAY_URL}/healthz, open the devtools console, paste the line below,"
+    echo "  then open ${GATEWAY_URL}/admin/dashboard."
+    echo "  fetch('/admin/test/login',{method:'POST',headers:{'Content-Type':'application/json'},body:'{\"principal_subject\":\"${subject}\",\"recurse_role\":\"platform_operator\"}'}).then(r=>r.status)"
+  else
+    echo "r5e login: no r5e_session cookie in the response" >&2
+    exit 1
+  fi
+}
+
+cmd_claude_code() {
+  case "${1:-}" in
+    setup)
+      shift
+      . "${REPO_ROOT}/bin/lib/claude-code-setup.sh"
+      R5E_PROXY_PORT="${PROXY_PORT:-4443}" claude_code_setup "$@" ;;
+    *) usage; exit 3 ;;
+  esac
+}
+
+# --- evidence (spec 012 S6) ------------------------------------------------
+# The zip is the F002 Export Evidence layout (attestation.json, payload.json,
+# inclusion proofs, policy_bundle.cedar, signing_key.pem, manifest.json);
+# docs/auditor/recurse-verify checks it offline. `export` needs the cookie
+# jar from `bin/r5e login`.
+EVIDENCE_ZIP="${STATE_DIR}/evidence.zip"
+VERIFIER="${REPO_ROOT}/docs/auditor/recurse-verify"
+
+need_cookie() {
+  if [ ! -s "$COOKIE_JAR" ] || ! grep -q r5e_session "$COOKIE_JAR"; then
+    echo "r5e evidence: no session cookie in ${COOKIE_JAR}; run: bin/r5e login" >&2
+    exit 1
+  fi
+}
+
+# Print "run_id<TAB>event_kind" of the newest receipt, optionally of one kind.
+latest_receipt() {
+  local kind="${1:-}" url="${GATEWAY_URL}/v1/audit/receipts?limit=1"
+  [ -n "$kind" ] && url="${url}&event_kind=${kind}"
+  curl -fsS --max-time 10 -b "$COOKIE_JAR" "$url" \
+    | jq -r '.receipts[0] | select(. != null) | [.run_id, .signed_predicate.event_kind] | @tsv'
+}
+
+cmd_evidence_export() {
+  need curl; need jq
+  local mode=denied run_id="" out="$EVIDENCE_ZIP"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --latest)  mode=latest; shift ;;
+      --run-id)  mode=run_id; run_id="${2:-}"; [ -n "$run_id" ] || { echo "r5e evidence export: --run-id needs a value" >&2; exit 3; }; shift 2 ;;
+      --out)     out="${2:-}"; [ -n "$out" ] || { echo "r5e evidence export: --out needs a value" >&2; exit 3; }; shift 2 ;;
+      -h|--help) echo "usage: r5e evidence export [--latest | --run-id ID] [--out FILE]"
+                 echo "  default: the newest tool_use_denied receipt; --latest: the newest receipt of any kind"
+                 echo "  writes FILE (default ${EVIDENCE_ZIP})"; return 0 ;;
+      *) echo "r5e evidence export: unknown option '$1'" >&2; exit 3 ;;
+    esac
+  done
+  need_cookie
+  local kind=""
+  case "$mode" in
+    denied)
+      IFS=$'\t' read -r run_id kind < <(latest_receipt tool_use_denied) || true
+      [ -n "$run_id" ] || { echo "r5e evidence export: no tool_use_denied receipt yet (ask Claude Code to run a forbidden command first, or use --latest)" >&2; exit 1; } ;;
+    latest)
+      IFS=$'\t' read -r run_id kind < <(latest_receipt) || true
+      [ -n "$run_id" ] || { echo "r5e evidence export: the ledger has no receipts yet" >&2; exit 1; } ;;
+  esac
+  mkdir -p "$(dirname "$out")"
+  local tmp="${out}.tmp.$$" status
+  status="$(curl -sS --max-time 60 -b "$COOKIE_JAR" -o "$tmp" -w '%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -X POST "${GATEWAY_URL}/v1/audit/export" -d "{\"run_ids\":[\"${run_id}\"]}")" || status=000
+  if [ "$status" != "200" ]; then
+    echo "r5e evidence export: POST /v1/audit/export -> HTTP ${status}" >&2
+    [ -s "$tmp" ] && head -c 400 "$tmp" >&2 && echo >&2
+    rm -f "$tmp"; exit 1
+  fi
+  mv "$tmp" "$out"
+  echo "r5e evidence export: run_id=${run_id}${kind:+ event_kind=${kind}}"
+  echo "r5e evidence export: wrote ${out} ($(wc -c < "$out" | tr -d ' ') bytes)"
+  echo "next: bin/r5e evidence verify${out:+ ${out}}"
+}
+
+# Step 4 of the verifier (policy hash) needs `cedar-canonical-hash`, a
+# small Rust binary built from native/recurse_cedar, next to the verifier
+# script. It is not shipped in the repo or the image, so it is built here
+# on first use (cargo, about a minute) into .r5e/verifier/ together with a
+# copy of the two scripts from docs/auditor/, because the verifier looks
+# for its helpers in its own directory. Without cargo the verifier still
+# runs; step 4 then reports NOT CHECKED and the verdict is FAIL.
+VERIFIER_DIR="${STATE_DIR}/verifier"
+prepare_verifier() {
+  mkdir -p "$VERIFIER_DIR"
+  cp -p "$VERIFIER" "${REPO_ROOT}/docs/auditor/verify-bundled-merkle" "$VERIFIER_DIR/"
+  if [ -x "${REPO_ROOT}/docs/auditor/cedar-canonical-hash" ]; then
+    cp -p "${REPO_ROOT}/docs/auditor/cedar-canonical-hash" "$VERIFIER_DIR/"
+  elif [ ! -x "$VERIFIER_DIR/cedar-canonical-hash" ]; then
+    if command -v cargo >/dev/null 2>&1; then
+      echo "r5e evidence verify: building cedar-canonical-hash once with cargo (native/recurse_cedar) ..."
+      if (cd "${REPO_ROOT}/native/recurse_cedar" && cargo build --release --quiet \
+            --bin cedar-canonical-hash --target-dir "${STATE_DIR}/cargo-target"); then
+        cp -p "${STATE_DIR}/cargo-target/release/cedar-canonical-hash" "$VERIFIER_DIR/"
+      else
+        echo "r5e evidence verify: cargo build failed; continuing without step 4's canonical hash" >&2
+      fi
+    else
+      echo "r5e evidence verify: cargo not found; step 4 (policy hash) will be NOT CHECKED and the verdict FAIL. Install Rust (rustup.rs) and rerun." >&2
+    fi
+  fi
+}
+
+cmd_evidence_verify() {
+  need unzip; need jq; need openssl; need xxd
+  local zip="${1:-$EVIDENCE_ZIP}"
+  case "$zip" in -h|--help) echo "usage: r5e evidence verify [FILE]   (default ${EVIDENCE_ZIP})"; return 0 ;; esac
+  [ -f "$zip" ] || { echo "r5e evidence verify: ${zip} not found; run: bin/r5e evidence export" >&2; exit 3; }
+  [ -x "$VERIFIER" ] || { echo "r5e evidence verify: ${VERIFIER} missing or not executable" >&2; exit 3; }
+  prepare_verifier
+  # The trust anchor is the signer's public key. The zip carries a copy;
+  # on a real engagement the auditor brings it independently
+  # (docs/auditor/verification_walkthrough.md). Here it is unzipped to a
+  # temp dir so the verifier runs in its strict, anchored mode (exit 0).
+  local anchor_dir
+  anchor_dir="$(mktemp -d "${TMPDIR:-/tmp}/r5e-anchor.XXXXXX")"
+  if ! unzip -q -o -d "$anchor_dir" "$zip" signing_key.pem 2>/dev/null; then
+    rm -rf "$anchor_dir"
+    echo "r5e evidence verify: ${zip} has no signing_key.pem at its root (a multi-receipt export is a zip of zips; unzip it once and verify each inner zip)" >&2
+    exit 3
+  fi
+  local rc=0
+  "${VERIFIER_DIR}/recurse-verify" --zip "$zip" --trust-anchor "${anchor_dir}/signing_key.pem" || rc=$?
+  rm -rf "$anchor_dir"
+  exit "$rc"
+}
+
+# --- the fold's evidence path (spec 012 S9c) --------------------------------
+# A SECOND evidence path, over different bytes, checked by a different
+# verifier. Keep the two apart:
+#
+#   the enterprise ledger    `evidence export`  -> .r5e/evidence.zip
+#     one signed receipt, its payload and its Merkle inclusion proofs.
+#     Checked by `docs/auditor/recurse-verify` (the wrapper `evidence
+#     verify` runs).
+#
+#   the fold's chain         `evidence export --fold` -> .r5e/fold-export/
+#     the whole hash-chained log the embedded r5e kernel wrote, its CAS
+#     objects and its KindDefinitions. Checked by the KERNEL's
+#     `recurse_verify` escript (`evidence verify --fold`).
+#
+# Neither verifier reads the other's export, and neither one's verdict says
+# anything about the other's bytes. docs/fold-evidence.md is the how-to.
+#
+# Both fold commands work through `docker exec` on the default stack's gateway
+# container, found by its compose labels: project `${R5E_FOLD_PROJECT}`
+# (default `r5e`), service `gateway`. No port is involved — the
+# kernel's own HTTP surface is unbound in the container by default
+# (R5E_FOLD_START_SERVER).
+FOLD_EXPORT_DIR="${STATE_DIR}/fold-export"
+FOLD_PROJECT="${R5E_FOLD_PROJECT:-r5e}"
+
+fold_container() {
+  local cid
+  cid="$(docker ps -q \
+    --filter "label=com.docker.compose.project=${FOLD_PROJECT}" \
+    --filter "label=com.docker.compose.service=gateway" | head -1)"
+  if [ -z "$cid" ]; then
+    echo "r5e evidence --fold: no running gateway container in compose project '${FOLD_PROJECT}'." >&2
+    echo "  start it with: docker compose -p ${FOLD_PROJECT} up -d" >&2
+    echo "  (or set R5E_FOLD_PROJECT / pass --project NAME if yours is named differently)" >&2
+    exit 1
+  fi
+  printf '%s' "$cid"
+}
+
+cmd_evidence_export_fold() {
+  need docker
+  local out="$FOLD_EXPORT_DIR"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --fold)    shift ;;
+      --out)     out="${2:-}"; [ -n "$out" ] || { echo "r5e evidence export --fold: --out needs a value" >&2; exit 3; }; shift 2 ;;
+      --project) FOLD_PROJECT="${2:-}"; [ -n "$FOLD_PROJECT" ] || { echo "r5e evidence export --fold: --project needs a value" >&2; exit 3; }; shift 2 ;;
+      -h|--help)
+        echo "usage: r5e evidence export --fold [--out DIR] [--project NAME]"
+        echo "  Exports the FOLD's chain — the hash-chained log the embedded r5e kernel"
+        echo "  wrote, its CAS objects and its KindDefinitions — by running R5e.Export.run/1"
+        echo "  inside the compose stack's gateway container and copying the bundle out."
+        echo "  This is NOT the enterprise ledger receipt export (\`r5e evidence export\`),"
+        echo "  and \`docs/auditor/recurse-verify\` does not read it."
+        echo "  writes DIR (default ${FOLD_EXPORT_DIR}); check it with: r5e evidence verify --fold"
+        return 0 ;;
+      *) echo "r5e evidence export --fold: unknown option '$1'" >&2; exit 3 ;;
+    esac
+  done
+
+  local cid; cid="$(fold_container)"
+  local inner="/tmp/r5e-fold-export-$$"
+  # R5e.Export.run/1 refuses a non-empty destination, so the container-side
+  # path is fresh per run and removed once the bytes are on the host.
+  docker exec "$cid" rm -rf "$inner" >/dev/null 2>&1 || true
+
+  local expr result
+  expr="case R5e.Export.run(\"${inner}\") do"
+  expr="${expr} {:ok, dir, _m} -> IO.puts(\"r5e-export-ok \" <> dir);"
+  expr="${expr} {:error, reason} -> IO.puts(\"r5e-export-error \" <> inspect(reason)) end"
+
+  if ! result="$(docker exec "$cid" /app/bin/audit_console rpc "$expr" 2>&1)"; then
+    echo "r5e evidence export --fold: bin/audit_console rpc failed:" >&2
+    printf '%s\n' "$result" >&2
+    echo "  is the fold on? R5E_FOLD_ENABLED=true, and /readyz should carry a \"fold\" block" >&2
+    exit 1
+  fi
+  case "$result" in
+    *r5e-export-ok*) : ;;
+    *) echo "r5e evidence export --fold: the kernel did not write a bundle:" >&2
+       printf '%s\n' "$result" >&2
+       exit 1 ;;
+  esac
+
+  if [ -e "$out" ]; then
+    if [ -f "${out}/manifest.json" ]; then
+      rm -rf "$out"
+    else
+      echo "r5e evidence export --fold: ${out} exists and is not a previous export (no manifest.json); move it or pass --out" >&2
+      exit 3
+    fi
+  fi
+  # `docker cp` cannot read the container's /tmp: it is a tmpfs mount
+  # (docker-compose.yaml hardens the gateway with `read_only: true` +
+  # `tmpfs: /tmp`), and cp reads the image's filesystem layers. A tar
+  # stream reads the live mount, so the bytes come out either way.
+  # COPYFILE_DISABLE keeps macOS tar from adding AppleDouble `._` files,
+  # which the verifier would report as objects nothing on the chain put
+  # there.
+  mkdir -p "$out"
+  docker exec "$cid" tar -cf - -C "$inner" . | COPYFILE_DISABLE=1 tar -xf - -C "$out"
+  docker exec "$cid" rm -rf "$inner" >/dev/null 2>&1 || true
+
+  echo "r5e evidence export --fold: wrote ${out}"
+  if command -v jq >/dev/null 2>&1 && [ -f "${out}/manifest.json" ]; then
+    jq -r '"  events=\(.events) objects=\(.objects) missing=\(.missingObjects|length) kinds=\(.kinds|length) signer=\(.signer.keyId)"' \
+      "${out}/manifest.json"
+  fi
+  echo "next: bin/r5e evidence verify --fold${out:+ ${out}}"
+}
+
+cmd_evidence_verify_fold() {
+  need docker
+  local dir=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --fold)    shift ;;
+      --project) FOLD_PROJECT="${2:-}"; [ -n "$FOLD_PROJECT" ] || { echo "r5e evidence verify --fold: --project needs a value" >&2; exit 3; }; shift 2 ;;
+      -h|--help)
+        echo "usage: r5e evidence verify --fold [DIR] [--project NAME]   (default ${FOLD_EXPORT_DIR})"
+        echo "  Runs the KERNEL's recurse_verify escript over the fold export, with"
+        echo "  --posture house, inside the container (the image ships it at"
+        echo "  /app/bin/recurse_verify, built from r5e-core/verifier). Exits with the"
+        echo "  verifier's own code: 0 clean, 1 findings, 2 the tool could not read it."
+        echo "  This does NOT check the enterprise ledger zip — that is"
+        echo "  \`r5e evidence verify\`, which runs docs/auditor/recurse-verify."
+        echo "  OFFLINE: a reader who will not run this image builds the escript"
+        echo "  themselves — r5e-core/verifier at the ref in docs/version-pins.md,"
+        echo "  \`mix deps.get && mix escript.build\` — and runs"
+        echo "  \`./recurse_verify DIR --posture house\` against these same bytes."
+        return 0 ;;
+      -*) echo "r5e evidence verify --fold: unknown option '$1'" >&2; exit 3 ;;
+      *)  dir="$1"; shift ;;
+    esac
+  done
+  dir="${dir:-$FOLD_EXPORT_DIR}"
+  [ -f "${dir}/manifest.json" ] || {
+    echo "r5e evidence verify --fold: ${dir} is not a fold export (no manifest.json); run: bin/r5e evidence export --fold" >&2
+    exit 3
+  }
+
+  local cid; cid="$(fold_container)"
+  local inner="/tmp/r5e-fold-verify-$$"
+  docker exec "$cid" rm -rf "$inner" >/dev/null 2>&1 || true
+  docker exec "$cid" mkdir -p "$inner"
+  # Same tmpfs reason as the export, in the other direction.
+  # `--no-xattrs` because macOS tar otherwise writes a
+  # `LIBARCHIVE.xattr.com.apple.provenance` header per file, which GNU tar
+  # in the container reports on every one of them.
+  COPYFILE_DISABLE=1 tar --no-xattrs -cf - -C "$dir" . | docker exec -i "$cid" tar -xf - -C "$inner"
+
+  local rc=0
+  docker exec "$cid" /app/bin/recurse_verify "$inner" --posture house || rc=$?
+  docker exec "$cid" rm -rf "$inner" >/dev/null 2>&1 || true
+  exit "$rc"
+}
+
+# True when `--fold` is among the arguments.
+has_fold_flag() {
+  local a
+  for a in "$@"; do
+    if [ "$a" = "--fold" ]; then return 0; fi
+  done
+  return 1
+}
+
+cmd_evidence() {
+  case "${1:-}" in
+    export)
+      shift
+      if has_fold_flag "$@"; then cmd_evidence_export_fold "$@"; else cmd_evidence_export "$@"; fi ;;
+    verify)
+      shift
+      if has_fold_flag "$@"; then cmd_evidence_verify_fold "$@"; else cmd_evidence_verify "$@"; fi ;;
+    *) echo "usage: r5e evidence export [--latest | --run-id ID] [--out FILE] | r5e evidence verify [FILE]" >&2
+       echo "       r5e evidence export --fold [--out DIR]                    | r5e evidence verify --fold [DIR]" >&2
+       echo "  the first pair is the enterprise ledger receipt (docs/auditor/recurse-verify);" >&2
+       echo "  the second is the fold's chain (the kernel's recurse_verify). See docs/fold-evidence.md." >&2
+       exit 3 ;;
+  esac
+}
+
+case "${1:-}" in
+  init)        shift; cmd_init "$@" ;;
+  status)      shift; cmd_status "$@" ;;
+  login)       shift; cmd_login "$@" ;;
+  claude-code) shift; cmd_claude_code "$@" ;;
+  evidence)    shift; cmd_evidence "$@" ;;
+  -h|--help|help|"") usage ;;
+  *) echo "r5e: unknown command '$1'" >&2; usage >&2; exit 3 ;;
+esac

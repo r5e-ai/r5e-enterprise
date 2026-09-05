@@ -1,0 +1,92 @@
+# Reference Tier Configuration — Managed SaaS on AWS EKS
+# ---------------------------------------------------------------
+# Validates against: specs/001-api-jido-foundations/contracts/tier_config.schema.json
+# Per Deliverable F / FR-013 / FR-015. Cedar pin per research D2 and the
+# stability fixture in apps/recurse_shared/priv/test_fixtures/cedar_stability/.
+#
+# This file is SCHEMA-VALID, IMPLEMENTATION-COMPLETE, and intended as the
+# starting point for Managed SaaS customer deployments. All values are either
+# required or have documented defaults — operators change only what their
+# deployment truly requires.
+#
+# Out-of-band integrity hash: compute `sha256sum` of this file and place the
+# output in a sibling `tier-config.sha256` file (FR-033). Hash mismatch fails
+# the Gateway into safe-closed state (FR-033 honest-framing note —
+# accidental-corruption detection, NOT tamper resistance).
+
+tier: managed_saas
+topology: single_node
+
+tenant_id: "01HTENANTEXAMPLE000000000A"  # example-tenant-001 (ULID form)
+
+runtime:
+  enabled: true
+
+gateway:
+  enabled: true
+
+auth:
+  anchors:
+    netns: true
+    observed_identity: false
+  principal_provider:
+    impl: "Recurse.Providers.Impls.OktaPrincipalProvider"
+    config:
+      okta_domain: "customer-tenant.okta.com"
+      audience: "api://recurse-gateway"
+      rfc8693_token_exchange: true
+
+session:
+  interim_commit_event_count: 10000
+  interim_commit_threshold_minutes: 60
+
+providers:
+  llm:
+    impl: "Recurse.Providers.Impls.OpenAILLMProvider"
+    config:
+      api_base: "https://api.openai.com/v1"
+      secret_ref: "kms://managed-saas/openai-api-key"
+  ledger:
+    impl: "Recurse.Providers.Impls.TrillianLedgerProvider"
+    config:
+      trillian_endpoint: "trillian.svc.cluster.local:8090"
+      tree_id: 42
+  storage:
+    impl: "Recurse.Providers.Impls.S3StorageProvider"
+    config:
+      region: "us-east-1"
+      bucket: "recurse-managed-saas-payloads-example"
+  secrets:
+    impl: "Recurse.Providers.Impls.AwsKmsSecretsProvider"
+    config:
+      region: "us-east-1"
+      signing_key_arn: "arn:aws:kms:us-east-1:000000000000:key/signing-key-id"
+      signing_key_rotation_days: 90
+  identity:
+    impl: "Recurse.Providers.Impls.SpireIdentityProvider"
+    config:
+      spire_server: "spire-server.svc.cluster.local:8081"
+      trust_domain: "recurse.ai"
+  policy:
+    impl: "Recurse.Providers.Impls.OciPolicyProvider"
+    config:
+      registry: "registry.recurse.ai"
+      repository: "policies/managed-saas-example"
+
+cedar:
+  version_pin: "4.9.1"
+  # Per research D2 — content-addressed crate digest of the pinned Cedar
+  # build. CI asserts this matches `native/recurse_cedar/Cargo.lock` entry for
+  # cedar-policy via `mix recurse.cedar.stability_check`.
+  cedar_crate_digest: "sha256:50368b44367cd7664627bbee9bfe5721d10ab2433daf77645833645e8eb746da"
+
+rate_limits:
+  data_plane_qps_per_agent: 120
+  control_plane_qps_per_tenant: 60
+  max_payload_bytes: 2097152       # 2 MiB
+
+features:
+  # All Phase-1 feature flags default off unless explicitly enabled here.
+  # Names must match the Deliverable F feature registry (expanded in Phase-2).
+
+dev_mode: false

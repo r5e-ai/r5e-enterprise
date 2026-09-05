@@ -1,0 +1,9 @@
+{"type":"response.created","response":{"id":"resp_abc123","object":"response","status":"in_progress"}}
+{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_001","content":[]}}
+{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_001","call_id":"call_ls_42","name":"shell","arguments":""}}
+{"type":"response.function_call.arguments.delta","item_id":"fc_001","call_id":"call_ls_42","delta":"{\"cmd"}
+{"type":"response.function_call.arguments.delta","item_id":"fc_001","call_id":"call_ls_42","delta":"\":\"ls -la"}
+{"type":"response.function_call.arguments.delta","item_id":"fc_001","call_id":"call_ls_42","delta":" /tmp\"}"}
+{"type":"response.function_call.completed","item_id":"fc_001","call_id":"call_ls_42"}
+{"type":"response.output_item.completed","output_index":1,"item":{"type":"function_call","id":"fc_001","call_id":"call_ls_42","name":"shell","arguments":"{\"cmd\":\"ls -la /tmp\"}"}}
+{"type":"response.completed","response":{"id":"resp_abc123","status":"completed","usage":{"input_tokens":42,"output_tokens":17}}}

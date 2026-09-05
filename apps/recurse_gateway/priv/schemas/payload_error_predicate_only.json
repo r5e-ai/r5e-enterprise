@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/payload_error_predicate_only.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "payload_error_predicate_only",
+  "description": "422 error variant returned by GET /v1/audit/payload?run_id=... when the targeted receipt is predicate-only-by-design (signed_predicate IS the audit content; no separate payload bytes were stored). Common case: receipts emitted by the JSONL session importer (MR !80) whose payload_uri uses the recurse://import/ scheme. Distinguished from 404 (resource missing) and 400 (request malformed) — the request was understood and the receipt exists; the resource just cannot be served because there are no detached bytes by design. The shape is a constrained subset of error_envelope.json with `error` pinned to `ERR_PREDICATE_ONLY`; the predicate-only payload_uri is echoed in `error_description` so SIEM forwarders + auditor diagnostics can confirm provenance without a second roundtrip. Built by Recurse.Gateway.AuditPlane.ErrorEnvelope.send_unprocessable_entity/4 from PayloadBroker.handle/1's predicate_only_imported branch (issue #60).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error", "error_description", "correlation_id"],
+  "properties": {
+    "error": {
+      "type": "string",
+      "description": "Pinned to ERR_PREDICATE_ONLY for this variant.",
+      "const": "ERR_PREDICATE_ONLY"
+    },
+    "error_description": {
+      "type": "string",
+      "description": "Human-readable explanation. Includes the predicate-only payload_uri (recurse://import/...) so the auditor can confirm provenance."
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Request correlation ID; defaults to 'unknown' when absent."
+    },
+    "attested_run_id": {
+      "type": ["string", "null"],
+      "description": "Always null for this variant (no denial receipt is emitted; the response is by-design 422, not a Cedar deny)."
+    }
+  }
+}

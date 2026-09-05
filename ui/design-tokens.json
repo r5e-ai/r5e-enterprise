@@ -1,0 +1,55 @@
+{
+  "$comment": "Design tokens — synchronized to the canonical Pencil variables (the Pencil source is kept privately by the maintainers; this file is the canonical token source in this tree). The previous palette was a 'historical placeholder' that diverged from the .pen variables; surfaces built against it didn't match canonical hexes. This file now mirrors the .pen variables 1:1 (key names prefixed with `r5e-` for Tailwind namespace, hex values copied verbatim from the .pen). Regenerate ui/tailwind.config.ts via `pnpm gen:tailwind` after editing.",
+  "colors": {
+    "r5e-bg": "#0B0B11",
+    "r5e-surface": "#13131D",
+    "r5e-surface-base": "#0B0B11",
+    "r5e-surface-elevated": "#13131D",
+    "r5e-surface-card": "#1A1A28",
+    "r5e-surface-hover": "#22223A",
+
+    "r5e-text": "#F0F0F5",
+    "r5e-foreground-primary": "#F0F0F5",
+    "r5e-foreground-secondary": "#9898AB",
+    "r5e-foreground-muted": "#5E5E73",
+    "r5e-muted": "#5E5E73",
+
+    "r5e-border": "#2A2A3C",
+    "r5e-border-strong": "#2A2A3C",
+    "r5e-border-subtle": "#1F1F30",
+    "r5e-border-accent": "#A855F740",
+
+    "r5e-accent": "#A855F7",
+    "r5e-accent-purple": "#A855F7",
+    "r5e-accent-glow": "#a385ff",
+    "r5e-accent-cyan": "#06B6D4",
+    "r5e-accent-pink": "#EC4899",
+    "r5e-accent-amber": "#F59E0B",
+    "r5e-accent-green": "#28C840",
+
+    "r5e-success": "#28C840",
+    "r5e-danger": "#EF4444",
+    "r5e-warning": "#F59E0B",
+
+    "r5e-chart-denied": "#EF4444",
+    "r5e-chart-subprocess": "#F97316",
+    "r5e-chart-file-write": "#FBBF24",
+    "r5e-chart-file-read": "#A3E635",
+    "r5e-chart-search": "#94a3b8",
+    "r5e-chart-network": "#2DD4BF",
+    "r5e-chart-mcp-tool": "#38BDF8",
+    "r5e-chart-agent": "#818CF8",
+    "r5e-chart-llm": "#C084FC",
+    "r5e-chart-todo": "#64748b",
+    "r5e-chart-ui": "#475569"
+  },
+  "fontFamilies": {
+    "sans": ["Inter", "system-ui", "sans-serif"],
+    "mono": ["JetBrains Mono", "ui-monospace", "monospace"]
+  },
+  "radii": {
+    "r5e-sm": "4px",
+    "r5e-md": "8px",
+    "r5e-lg": "12px"
+  }
+}

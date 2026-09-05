@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/mcp_tool_call_response.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "mcp_tool_call_response",
+  "description": "Response envelope for POST /v1/mcp/{server}/tools/{tool}. Carries the tool result alongside Recurse-specific provenance metadata: the run_id of the emitted attestation receipt and the policy decision that gated the call.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["server", "tool", "policy_decision", "result", "attested_run_id"],
+  "properties": {
+    "id": { "type": ["string", "integer", "null"] },
+    "server": { "type": "string" },
+    "tool": { "type": "string" },
+    "policy_decision": {
+      "type": "string",
+      "enum": ["allow", "deny"]
+    },
+    "deny_reason": {
+      "type": ["string", "null"],
+      "description": "Human-readable cause when policy_decision == \"deny\". Null on allow."
+    },
+    "trust_tier": {
+      "type": "string",
+      "enum": ["verified", "community", "quarantined"],
+      "description": "Trust tier of the registry entry at call time. Quarantined ⇒ deny."
+    },
+    "attested_run_id": {
+      "type": "string",
+      "description": "run_id of the :mcp_tool_call attestation emitted for this call. Auditors deep-link from this value into the Audit Console."
+    },
+    "result": {
+      "description": "Tool-specific result payload. Shape varies by tool. Null when policy_decision == \"deny\".",
+      "anyOf": [
+        { "type": "object", "additionalProperties": true },
+        { "type": "array" },
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

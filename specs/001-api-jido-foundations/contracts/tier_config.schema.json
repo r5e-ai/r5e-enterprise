@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://recurse.ai/schemas/v1/tier_config.schema.json",
+  "title": "Recurse Tier Configuration (v1.0)",
+  "description": "Per FR-015. Customer-deployment configuration; YAML on disk, JSON Schema is the validation contract. Integrity hash verified out-of-band per FR-033 (accidental-corruption detection only; cryptographic signing deferred to Phase 2).",
+  "type": "object",
+  "required": [
+    "tier", "topology", "tenant_id",
+    "runtime", "gateway", "auth", "session"
+  ],
+  "properties": {
+    "tier": {
+      "type": "string",
+      "enum": ["managed_saas", "standalone_gateway", "vpc_runner", "appliance"],
+      "description": "Phase-1 ships managed_saas + standalone_gateway; vpc_runner is contract-preview; appliance deferred to Phase 2"
+    },
+    "topology": {
+      "type": "string",
+      "enum": ["single_node"],
+      "description": "Phase-1 supports single_node ONLY. The reserved value 'federated' is NOT a permitted Phase-1 value (rejected at config-load time per Constitution Reconciliation §1)."
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "ULID; fixed deployment-config value (BEAM-per-customer per FR-019)"
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "false in standalone_gateway tier; true in managed_saas / vpc_runner / appliance"
+        }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "const": true,
+          "description": "Always true in Phase 1; the Gateway is present in every shape"
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": ["anchors"],
+      "properties": {
+        "anchors": {
+          "type": "object",
+          "properties": {
+            "netns": {
+              "type": "boolean",
+              "description": "true for Governance shapes (managed_saas / vpc_runner / appliance); false for standalone_gateway"
+            },
+            "observed_identity": {
+              "type": "boolean",
+              "description": "true for standalone_gateway; optional for appliance"
+            }
+          }
+        },
+        "principal_provider": {
+          "type": "object",
+          "required": ["impl"],
+          "properties": {
+            "impl": {
+              "type": "string",
+              "description": "fully-qualified Elixir module name implementing PrincipalProvider behaviour"
+            },
+            "config": { "type": "object" }
+          }
+        },
+        "identity_broker": {
+          "type": "object",
+          "description": "FR-053 — only relevant when tier == standalone_gateway",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "sso_webhook_url": { "type": "string", "format": "uri" },
+            "byo_jwt_issuer": {
+              "type": "boolean",
+              "description": "if true, customer brings their own JWT issuer; broker disabled even if enabled flag is true"
+            }
+          }
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "properties": {
+        "interim_commit_event_count": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 10000
+        },
+        "interim_commit_threshold_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 60
+        }
+      }
+    },
+    "providers": {
+      "type": "object",
+      "description": "Provider Interface bindings — fully-qualified Elixir module names + per-impl config",
+      "properties": {
+        "llm": { "$ref": "#/$defs/ProviderBinding" },
+        "ledger": { "$ref": "#/$defs/ProviderBinding" },
+        "storage": { "$ref": "#/$defs/ProviderBinding" },
+        "secrets": { "$ref": "#/$defs/ProviderBinding" },
+        "identity": { "$ref": "#/$defs/ProviderBinding" },
+        "policy": { "$ref": "#/$defs/ProviderBinding" }
+      }
+    },
+    "cedar": {
+      "type": "object",
+      "required": ["version_pin"],
+      "properties": {
+        "version_pin": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "FR-039 — exact Cedar version this deployment was canonicalized against; CI stability fixture asserts hash invariance against this pin"
+        }
+      }
+    },
+    "rate_limits": {
+      "type": "object",
+      "description": "FR-023 — per-plane mechanics; numeric defaults set at /speckit-plan time",
+      "properties": {
+        "data_plane_qps_per_agent": { "type": "integer", "minimum": 1 },
+        "control_plane_qps_per_tenant": { "type": "integer", "minimum": 1 },
+        "max_payload_bytes": { "type": "integer", "minimum": 1024 }
+      }
+    },
+    "features": {
+      "type": "object",
+      "description": "Feature flags map for finer-grained activation. Documented per-feature in Deliverable F.",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "ProviderBinding": {
+      "type": "object",
+      "required": ["impl"],
+      "properties": {
+        "impl": {
+          "type": "string",
+          "description": "fully-qualified Elixir module name implementing the corresponding behaviour"
+        },
+        "config": {
+          "type": "object",
+          "description": "impl-specific configuration; passed to the impl's init/1"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

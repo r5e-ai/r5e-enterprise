@@ -1,0 +1,32 @@
+{
+  "group": "core.r5e.io",
+  "kind": "CasExpired",
+  "version": "v1",
+  "substrate": "event",
+  "naming": {
+    "mode": "content"
+  },
+  "description": "A raw object removed from the CAS by the retention sweeper (actor system:retention) because nothing on the chain cites it; a public-record object can never be expired.",
+  "schema": {
+    "required": [
+      "address"
+    ],
+    "properties": {
+      "address": {
+        "type": "string",
+        "pattern": "bytes:sha256:[0-9a-f]{64}"
+      }
+    },
+    "additionalProperties": false
+  },
+  "epistemicScope": {
+    "claims": [
+      "at the recorded position on the chain, the object at this address was uncited by any admitted spec, resolution manifest, event payload, or specAddress, and was removed"
+    ],
+    "doesNotClaim": [
+      "that the bytes never existed or were never read",
+      "that the recorded actor held the key whose fingerprint is recorded — admissions are not yet signed by their actors"
+    ]
+  },
+  "predicates": []
+}

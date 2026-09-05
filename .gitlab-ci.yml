@@ -1,0 +1,428 @@
+# GitLab CI/CD pipeline for r5e-enterprise.
+#
+# **This file is the authoritative gate set.** `.github/workflows/ci.yml`
+# mirrors it: it runs at least these gates and may run more (it also runs
+# ESLint, the UI codegen drift gates and the production build). Where the
+# two disagree about whether something is a gate, this file decides.
+# Staging mirrors exercise exact companion fetches using
+# R5E_COMPANION_GIT_BASE. Public source availability is checked separately;
+# see `docs/version-pins.md`.
+#
+# Implements the deploy invariant from `.specify/cicd-hardening.md`:
+#
+#   Only a CI-built, content-addressed, attested artifact from an
+#   immutable revision may be deployed; runtime MUST verify the
+#   digest post-deploy.
+#
+# Stages:
+#   - agent-image : builds the credential-free developer-agent tool image
+#                   with AGENT_PROVIDER + AGENT_RUN_APPROVED=1
+#   - agent       : opt-in developer agent runner, triggered via API/webhook
+#                   with AGENT_PROVIDER + AGENT_RUN_APPROVED=1
+#   - check       : fast UI contract checks before the release build
+#   - build    : clean Docker container builds release tarball + SBOM,
+#                emits SHA-256 digest as the artifact's content address
+#   - publish  : pushes release tarball + SBOM + SHA sidecar to S3 CAS,
+#                key `beam-releases/<sha>/release.tar.gz`
+#   - deploy   : SSMs the dogfood BEAM to download by SHA + swap atomically
+#   - verify   : runs scripts/recurse-verify-deployed.sh to confirm the
+#                deployed BEAM serves the artifact with the expected SHA
+#                AND the bytecode contains the expected symbol set.
+#                Fails the pipeline (and triggers rollback) on mismatch.
+#
+# The developer-agent runner and the whole deploy / publish path (container
+# image and chart builds, Cedar bundle publish, Argo CD manifest bump) live
+# in a private include, `.gitlab/ci/private-deploy.yml`: those jobs carry
+# the operator's own AWS account, IAM roles, container registry and deploy
+# hostnames, which are not part of the public source. The public tree ships
+# without that file, and the guarded include below is skipped when it is
+# absent, leaving the source-preparation and test gates in this file as the
+# whole pipeline.
+
+# `.gitlab/ci/private-deploy.yml` holds the operator's deploy and publish
+# jobs and is not in the public tree. `rules: - exists:` makes the include
+# a silent no-op when the file is not present, rather than a "local file
+# does not exist" pipeline error.
+# Runner selection is a variable so the same pipeline runs on the project's
+# self-hosted runners (the defaults) or, for a staging mirror, on GitLab's
+# shared runners (set every R5E_RUNNER_TAG_* to a shared-runner tag such as
+# saas-linux-medium-amd64). R5E_PRIVATE_CI=false keeps the private deploy
+# include out of a run, which is what the public tree looks like.
+variables:
+  R5E_RUNNER_TAG_K8S: k8s
+  R5E_RUNNER_TAG_CI: ci
+  R5E_RUNNER_TAG_ECR: ecr
+  R5E_RUNNER_TAG_AGENT: dev-agent
+
+include:
+  - local: .gitlab/ci/private-deploy.yml
+    rules:
+      - if: '$R5E_PRIVATE_CI == "false"'
+        when: never
+      - exists: [".gitlab/ci/private-deploy.yml"]
+
+stages:
+  - agent-image
+  - agent
+  - check
+  # Container / EKS deploy. Runs on develop / demo branch pushes only.
+  # Exact-source backend tests also gate main pushes and MR events; deploy
+  # jobs consume the same prepared three-repository context and identity.
+  #
+  # The historical EC2 path (build:release → publish:s3 → deploy:audit-{dev,demo}
+  # → verify:deployed → rollback:audit-*) was retired with the migration to
+  # docker buildx + ArgoCD. See git history for the deleted jobs.
+  #
+  # The jobs for the container-* stages are defined in the private
+  # include `.gitlab/ci/private-deploy.yml`, which the public tree does
+  # not ship. The stage names stay declared here either way.
+  - container-image
+  - container-chart
+  - container-bump
+
+# ---------------------------------------------------------------------- #
+# Path globs — YAML anchors used by the workflow:rules: docs-skip and by
+# per-job rules:changes:paths: filters. Hidden jobs (`.<name>:`) so they
+# don't instantiate as pipeline jobs themselves; the YAML anchor is the
+# whole point.
+#
+# The convention these encode is documented in .specify/cicd-hardening.md
+# under "CI hygiene". TL;DR: if you find yourself blocked by a pipeline
+# failing or waiting on a job that doesn't touch your code's surface, the
+# fix is to add a path filter to that job — not "wait it out."
+# ---------------------------------------------------------------------- #
+
+# Anything that can change a deployable artifact, a check result, or the
+# pipeline definition itself. The complement is docs-only (which the
+# workflow:rules: block below uses as the skip-pipeline trigger).
+.ci_code_paths: &ci_code_paths
+  - "apps/**/*"
+  - "config/**/*"
+  - "deps/**/*"
+  - "rel/**/*"
+  - "ui/**/*"
+  - "scripts/**/*"
+  - "infra/**/*"
+  - "Dockerfile"
+  - "Dockerfile.*"
+  - ".dockerignore"
+  - "mix.exs"
+  - "mix.lock"
+  - "release-dependencies.json"
+  - ".tool-versions"
+  - ".gitlab-ci.yml"
+  # The private deploy include is part of the pipeline definition too, so
+  # a change to it alone must still create a pipeline. Absent in the
+  # public tree, where the glob simply never matches.
+  - ".gitlab/ci/*.yml"
+  # The contribution gate has to run on the merge request that signs the
+  # CLA, and that merge request touches nothing but these files. Without
+  # them here the pipeline is never created and the gate never runs.
+  - "CLA.md"
+  - "CLA-SIGNERS.md"
+  - "MAINTAINERS"
+  - "CONTRIBUTING.md"
+
+# Frontend-only paths — what ui:checks actually depends on. Backend-only
+# MRs (Elixir under apps/recurse_*/lib/) skip ui:checks entirely.
+.ci_ui_paths: &ci_ui_paths
+  - "ui/**/*"
+  - ".gitlab-ci.yml"
+
+# Backend release paths — what build:release actually depends on. UI-only
+# MRs (typescript / css / pages) skip build:release entirely (the release
+# tarball would be byte-identical anyway since BEAM bytecode doesn't change).
+.ci_backend_paths: &ci_backend_paths
+  - "apps/**/*"
+  - "config/**/*"
+  - "deps/**/*"
+  - "rel/**/*"
+  - "scripts/**/*"
+  - "Dockerfile"
+  - "Dockerfile.*"
+  - ".dockerignore"
+  - "mix.exs"
+  - "mix.lock"
+  - "release-dependencies.json"
+  - ".tool-versions"
+  - ".gitlab-ci.yml"
+
+# ---------------------------------------------------------------------- #
+# workflow:rules: — pipeline-level docs-skip.
+#
+# When an MR or branch push touches ONLY docs / spec / markdown / agent
+# memory, no pipeline is created at all. (Previously every MR fired
+# ui:checks + build:release regardless of what changed; a 23-line
+# constitution.md edit would burn 30+ min of self-hosted runner time.)
+#
+# Note: `[skip ci]` in commit messages governs the post-merge branch
+# pipeline only — it does NOT skip the MR-event pre-merge pipeline. This
+# workflow block does both.
+# ---------------------------------------------------------------------- #
+workflow:
+  rules:
+    # Promote MRs (main → demo, main → develop) — `compare_to: refs/heads/main`
+    # below would zero-diff because the source IS main, dropping the
+    # pipeline entirely and leaving the MR with `detailed_merge_status:
+    # ci_must_pass` against a never-created pipeline. Carve out before the
+    # path-filter rule so promote MRs always get a real pipeline.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == "main"
+      when: always
+    # MR pipeline: only create if the diff vs main touches code.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        compare_to: refs/heads/main
+        paths: *ci_code_paths
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    # Branch push: only create if the push touches code.
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH
+      changes:
+        paths: *ci_code_paths
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH
+      when: never
+    # Web/API/trigger/schedule/tag pipelines — keep default (always run).
+    - when: always
+
+# ---------------------------------------------------------------------- #
+# check — fast UI structural guardrails before the release build.
+# ---------------------------------------------------------------------- #
+
+# The first gate of every merge-request pipeline: provenance before anything
+# else is spent on the change. DCO on every commit in the range, and — because
+# this repository is AGPL and r5e Inc. also licenses it commercially — the CLA
+# on the author's account. `scripts/check-contribution-signing.sh` prints the
+# rule that failed and the one command that fixes it. Its own unit test runs in
+# `source:prepare` with the rest of `test/scripts/`.
+contribution:signing:
+  stage: check
+  image: hexpm/elixir:1.19.5-erlang-28.5-debian-bookworm-20260421
+  tags:
+    - $R5E_RUNNER_TAG_K8S
+    - $R5E_RUNNER_TAG_CI
+  timeout: 5m
+  interruptible: true
+  needs: []
+  variables:
+    # The check walks the whole merge-request range, so a shallow clone would
+    # make it pass by seeing nothing.
+    GIT_DEPTH: 0
+    R5E_REQUIRE_CLA: "1"
+  rules:
+    - if: '$AGENT_RUN_APPROVED == "1"'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - when: never
+  script:
+    - scripts/check-contribution-signing.sh
+
+source:prepare:
+  stage: check
+  image: python:3.13-alpine
+  tags:
+    - $R5E_RUNNER_TAG_K8S
+    - $R5E_RUNNER_TAG_CI
+  timeout: 10m
+  interruptible: true
+  rules:
+    - if: '$AGENT_RUN_APPROVED == "1" && $AGENT_PROVIDER =~ /^(claude|codex|gemini)$/'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "demo" || $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api"'
+    - when: never
+  before_script:
+    # bash: scripts/check-contribution-signing.sh and its tests run here; the
+    # alpine image has only busybox sh.
+    - apk add --no-cache git bash openssl
+  script:
+    - python3 -m unittest discover -s test/scripts -p '*_test.py' -v
+    - |
+      python3 scripts/prepare-ci-sources.py \
+        --enterprise-source "$CI_PROJECT_DIR" \
+        --enterprise-commit "$CI_COMMIT_SHA" \
+        --output "$CI_PROJECT_DIR/.ci-release-context" \
+        --metadata "$CI_PROJECT_DIR/source.env"
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - .ci-release-context/
+    reports:
+      dotenv: source.env
+
+backend:test:
+  stage: check
+  image: hexpm/elixir:1.19.5-erlang-28.5-debian-bookworm-20260421
+  tags:
+    - $R5E_RUNNER_TAG_K8S
+    - $R5E_RUNNER_TAG_CI
+  timeout: 60m
+  interruptible: true
+  needs:
+    - job: source:prepare
+      artifacts: true
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    MIX_ENV: test
+    POSTGRES_USER: recurse
+    POSTGRES_PASSWORD: recurse
+    POSTGRES_DB: recurse_test
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    R5E_DATABASE_SSL: "false"
+    MIX_HOME: "$CI_PROJECT_DIR/.cache/mix"
+    HEX_HOME: "$CI_PROJECT_DIR/.cache/hex"
+    REBAR_CACHE_DIR: "$CI_PROJECT_DIR/.cache/rebar3"
+    RUSTUP_HOME: "$CI_PROJECT_DIR/.cache/rustup"
+    CARGO_HOME: "$CI_PROJECT_DIR/.cache/cargo"
+    R5E_CACHE_POLICY: pull-push
+  rules:
+    - if: '$AGENT_RUN_APPROVED == "1" && $AGENT_PROVIDER =~ /^(claude|codex|gemini)$/'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      variables:
+        R5E_CACHE_POLICY: pull
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "demo" || $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api"'
+    - when: never
+  cache:
+    key: "backend-${CI_RUNNER_EXECUTABLE_ARCH}-otp28-elixir1.19-rust1.92-${CI_COMMIT_SHA}"
+    paths:
+      - .cache/
+      - .ci-release-context/r5e-enterprise/deps/
+      - .ci-release-context/r5e-enterprise/_build/
+      - .ci-release-context/r5e-enterprise/native/recurse_cedar/target/
+      - .ci-release-context/r5e-enterprise/native/recurse_spiffe/target/
+      - .ci-release-context/r5e-kernel/deps/
+      - .ci-release-context/r5e-kernel/_build/
+      - .ci-release-context/r5e-kernel/native/r5e_cedar/target/
+      - .ci-release-context/r5e-core/verifier/deps/
+      - .ci-release-context/r5e-core/verifier/_build/
+    policy: $R5E_CACHE_POLICY
+  before_script:
+    - apt-get update -qq
+    # jq, unzip, xxd and openssl are what docs/auditor/recurse-verify needs;
+    # fourteen integration tests run that script. Found by the first
+    # shared-runner run (2026-09-05): the image ships none of them.
+    - apt-get install -y -qq --no-install-recommends build-essential curl git pkg-config libssl-dev postgresql-client ca-certificates jq unzip xxd openssl python3
+    - mkdir -p "$MIX_HOME" "$HEX_HOME" "$REBAR_CACHE_DIR" "$RUSTUP_HOME" "$CARGO_HOME"
+    - export PATH="$CARGO_HOME/bin:$PATH"
+    - |
+      if ! command -v rustup >/dev/null 2>&1; then
+        curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | \
+          sh -s -- --default-toolchain 1.92.0 --profile minimal -y
+      fi
+    - rustup default 1.92.0
+    - rustc --version
+    - cargo --version
+    - mix local.hex --force
+    - mix local.rebar --force
+  script:
+    - |
+      set -e
+      export PATH="$CARGO_HOME/bin:$PATH"
+
+      cd "$CI_PROJECT_DIR/.ci-release-context/r5e-enterprise"
+      mix deps.get
+      cargo metadata --manifest-path native/recurse_cedar/Cargo.toml --format-version 1 >/dev/null
+      cargo metadata --manifest-path native/recurse_spiffe/Cargo.toml --format-version 1 >/dev/null
+      cargo metadata --manifest-path ../r5e-kernel/native/r5e_cedar/Cargo.toml --format-version 1 >/dev/null
+      mix compile --warnings-as-errors
+      mix ecto.create --quiet
+      mix ecto.migrate
+      mix recurse.contracts.validate
+      mix test
+      mix recurse.cedar.stability_check
+      mix credo --strict
+      cargo test --manifest-path native/recurse_cedar/Cargo.toml
+      cargo test --manifest-path native/recurse_spiffe/Cargo.toml
+      cargo test --manifest-path ../r5e-kernel/native/r5e_cedar/Cargo.toml
+
+      cd "$CI_PROJECT_DIR/.ci-release-context/r5e-kernel"
+      mix deps.get
+      # B5 (RC review 2026-09-05): the kernel's own warnings gate. Mix does
+      # not propagate --warnings-as-errors to dependencies, so compiling
+      # the umbrella with it left every kernel warning ungated in both
+      # pipelines while the release notes listed the gate as passing.
+      mix compile --warnings-as-errors
+      mix test
+
+      cd "$CI_PROJECT_DIR/.ci-release-context/r5e-core/verifier"
+      mix deps.get
+      mix test
+      mix conformance
+
+ui:checks:
+  stage: check
+  image: node:20-bookworm
+  # In-cluster gitlab-runner (EKS, amd64, no queue waits, no Graviton
+  # hangs). Replaces the self-hosted t4g.large runner that's about to be
+  # decommissioned post-EKS-cutover.
+  tags:
+    - $R5E_RUNNER_TAG_K8S
+    - $R5E_RUNNER_TAG_CI
+    - $R5E_RUNNER_TAG_ECR
+  timeout: 10m
+  interruptible: true
+  # GitLab cache for pnpm — keyed on pnpm-lock.yaml so dependency-unchanged
+  # MRs hit cache. Was previously irrelevant (self-hosted runner had a
+  # persistent /root/.local/share/pnpm/store mount); on the K8s executor
+  # each job pod is fresh so we round-trip via the runner cache backend.
+  cache:
+    key:
+      files:
+        - ui/pnpm-lock.yaml
+    paths:
+      - ui/node_modules/
+    policy: pull-push
+  rules:
+    - if: '$AGENT_RUN_APPROVED == "1" && $AGENT_PROVIDER =~ /^(claude|codex|gemini)$/'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger"'
+      when: never
+    # MR pipelines — only fire on UI changes. Backend-only MRs (apps/recurse_*)
+    # don't need ui:checks; the workflow:rules: docs-skip already filters out
+    # docs-only MRs.
+    #
+    # Note: promote MRs (main → demo, main → develop) intentionally have
+    # NO carve-out here. compare_to: refs/heads/main yields a zero-diff
+    # for main-source MRs, so this rule won't match on a promote MR —
+    # ui:checks doesn't run on the promote pipeline. That's correct:
+    # the actual demo / develop branch push (post-merge) re-evaluates
+    # the rules below against the branch push diff and fires ui:checks
+    # iff the merged code touched ui/. We were running ui:checks twice
+    # before — once on the promote MR and once on the post-merge push.
+    # The workflow-level carve-out for promote MRs creates the pipeline
+    # at all (so the MR can land), but per-job rules still respect path
+    # filters.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        compare_to: refs/heads/main
+        paths: *ci_ui_paths
+    # Run on main (canonical history sanity), develop (auto-deploys
+    # downstream), and demo (so demo branch stays green for the
+    # eventual audit-demo deploy). All three need the same
+    # structural guardrails before any release build — but again, only
+    # when UI files actually changed in the push.
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        paths: *ci_ui_paths
+    - if: $CI_COMMIT_BRANCH == "develop"
+      changes:
+        paths: *ci_ui_paths
+    - if: $CI_COMMIT_BRANCH == "demo"
+      changes:
+        paths: *ci_ui_paths
+    - if: $CI_COMMIT_TAG
+  script:
+    - corepack enable
+    - corepack prepare pnpm@9.15.0 --activate
+    - cd ui
+    - pnpm install --frozen-lockfile
+    - pnpm typecheck
+    - pnpm run test
+    - pnpm run check:component-shadows
+    - pnpm run check:design
+

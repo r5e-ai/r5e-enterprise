@@ -1,0 +1,18 @@
+{
+  "kind": "*",
+  "engine": "cedar",
+  "action": "admit",
+  "resourceType": "@kind",
+  "resourceId": "@kind",
+  "context": {
+    "identity": {
+      "path": "@actor.identity",
+      "whenAbsent": "absent"
+    },
+    "authority_roots": {
+      "path": "@actor.authorityRoots",
+      "whenAbsent": "absent"
+    }
+  },
+  "description": "The fallback presentation for every Kind with no shape of its own: admitting a named thing. A `<engine>.*` shape may read only envelope fields and literals (schema-lite-v2 §8), because there is no target schema to type a spec path against. `resourceId` reads `@kind` rather than `@name` because of §8's E2: on a `server`-named Kind the name IS the admission event's hash, which does not exist while `authorize` is running, and `resourceId` has no `whenAbsent` — so a fallback reading `@name` fails closed on every AgentSession admission. `@kind` exists on every request, so the fallback governs every Kind rather than refusing one class of them. The cost is stated: under this shape the resource is the Kind, not the instance, so a policy written against `cedar.*` cannot distinguish two instances of one Kind. A Kind that needs that distinction gets a shape of its own. Spec 011 §11 (KS-7): every act now carries the actor's standing into the context — `identity` says whether the request was signed, and `authority_roots` names the keys its cited authority resolves to. Both are the kernel's own answers, settled before `authorize` runs and recorded on the receipt, so a rule written against them decides on the same facts a reader of the chain will see. The field they replace, `@actor.keyFingerprint`, was a fingerprint the actor asserted about itself and is removed from the grammar."
+}

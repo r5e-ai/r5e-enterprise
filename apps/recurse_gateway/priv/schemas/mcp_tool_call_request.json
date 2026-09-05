@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/mcp_tool_call_request.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "mcp_tool_call_request",
+  "description": "Request body for POST /v1/mcp/{server}/tools/{tool}. Loosely follows the JSON-RPC 2.0 tools/call shape from the MCP HTTP transport spec; the demo subset accepts an `arguments` map plus optional `id` for client correlation.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": ["string", "integer", "null"],
+      "description": "Client-supplied correlation id; echoed back on the response."
+    },
+    "arguments": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Tool-specific arguments. Validated per tool inside the handler (the per-tool schemas live under capabilities[].input_schema_ref in the registry entry)."
+    }
+  }
+}

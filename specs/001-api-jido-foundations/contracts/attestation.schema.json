@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://recurse.ai/schemas/v1/attestation.schema.json",
+  "title": "Recurse-native Attestation Container (v1.0)",
+  "description": "Phase-1 attestation receipt envelope per FR-021. Splits signed-immutable predicate from outer-mutable state container. Auditors verify the dsseEnvelope signature once; outer-container fields mutate as commits land and are NOT signed.",
+  "type": "object",
+  "required": ["mediaType", "dsseEnvelope", "outer"],
+  "properties": {
+    "mediaType": {
+      "const": "application/vnd.recurse.attestation+json;version=1.0"
+    },
+    "dsseEnvelope": {
+      "$ref": "#/$defs/DSSEEnvelope",
+      "description": "DSSE per ITE-5 wrapping an in-toto v1.0 attestation predicate. Signed once at emission. Immutable."
+    },
+    "outer": {
+      "$ref": "#/$defs/OuterContainer",
+      "description": "Mutable proof-state metadata. Regenerated on each query. NOT signed."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "DSSEEnvelope": {
+      "type": "object",
+      "required": ["payloadType", "payload", "signatures"],
+      "properties": {
+        "payloadType": {
+          "const": "application/vnd.in-toto+json"
+        },
+        "payload": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "description": "base64-encoded in-toto v1.0 Statement, whose predicate matches RecursePredicate"
+        },
+        "signatures": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["keyid", "sig"],
+            "properties": {
+              "keyid": {
+                "type": "string",
+                "description": "format: <signer_key_id>:<signer_key_version> resolvable via SigningKey table (FR-046)"
+              },
+              "sig": {
+                "type": "string",
+                "contentEncoding": "base64"
+              }
+            }
+          }
+        }
+      }
+    },
+    "RecursePredicate": {
+      "type": "object",
+      "description": "The in-toto predicate payload (decoded from DSSE.payload). All fields are immutable post-signing.",
+      "required": [
+        "envelope_version", "run_id", "step_id", "session_id", "session_chain_position",
+        "tenant_id", "timestamp", "machine_identity", "principal", "policy_canonical_hash",
+        "payload_hash", "payload_uri", "correlation_id", "signer", "event_kind"
+      ],
+      "properties": {
+        "envelope_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+(\\.\\d+)?$",
+          "description": "starts at 1.0; bumps on schema evolution"
+        },
+        "run_id": { "$ref": "#/$defs/ULID" },
+        "step_id": { "$ref": "#/$defs/ULID" },
+        "turn_id": {
+          "anyOf": [{ "$ref": "#/$defs/ULID" }, { "type": "null" }],
+          "description": "FR-041 parent for parallel tool calls; absent for top-level LLM calls and standalone egress events"
+        },
+        "session_id": { "$ref": "#/$defs/ULID" },
+        "session_chain_position": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "immutable event index within the session"
+        },
+        "tenant_id": { "$ref": "#/$defs/ULID" },
+        "event_kind": {
+          "type": "string",
+          "enum": ["llm_call", "tool_call", "egress_denied", "policy_denied", "session_abort"]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 UTC; trust anchor per FR-031"
+        },
+        "machine_identity": {
+          "type": "object",
+          "oneOf": [
+            {
+              "required": ["spiffe_id"],
+              "properties": {
+                "spiffe_id": { "type": "string", "pattern": "^spiffe://" }
+              }
+            },
+            {
+              "required": ["observed_jwt_subject"],
+              "description": "Standalone Gateway shape (X-Observed-Identity per FR-017)",
+              "properties": {
+                "observed_jwt_subject": { "type": "string" },
+                "observed_jwt_issuer": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "principal": { "$ref": "#/$defs/Principal" },
+        "policy_canonical_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "SHA-256 of JCS(PolicySet::to_json()) per FR-039 / RFC 8785"
+        },
+        "tool_sbom_ref": {
+          "type": ["string", "null"],
+          "description": "optional SBOM reference for invoked MCP tools"
+        },
+        "payload_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "payload_uri": {
+          "type": "string",
+          "format": "uri",
+          "description": "customer-storage location of the detached payload (FR-030 broker resolves it)"
+        },
+        "correlation_id": { "$ref": "#/$defs/ULID" },
+        "signer": {
+          "type": "string",
+          "pattern": "^spiffe://",
+          "description": "SPIFFE ID of the Gateway instance that emitted the envelope"
+        }
+      }
+    },
+    "Principal": {
+      "type": "object",
+      "required": ["kind", "schema_version"],
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "obo_human" },
+            "schema_version": { "const": "1.0" },
+            "issuer": { "type": "string" },
+            "subject": { "type": "string" },
+            "display_name": { "type": ["string", "null"] },
+            "groups": {
+              "type": ["array", "null"],
+              "items": { "type": "string" }
+            }
+          },
+          "required": ["kind", "schema_version", "issuer", "subject"]
+        },
+        {
+          "properties": {
+            "kind": { "const": "service_account" },
+            "schema_version": { "const": "1.0" },
+            "issuer": { "type": "string" },
+            "account_id": { "type": "string" },
+            "scope": {
+              "type": ["array", "null"],
+              "items": { "type": "string" }
+            }
+          },
+          "required": ["kind", "schema_version", "issuer", "account_id"]
+        },
+        {
+          "properties": {
+            "kind": { "const": "autonomous" },
+            "schema_version": { "const": "1.0" },
+            "spiffe_id": { "type": "string", "pattern": "^spiffe://" }
+          },
+          "required": ["kind", "schema_version", "spiffe_id"]
+        }
+      ]
+    },
+    "OuterContainer": {
+      "type": "object",
+      "required": [
+        "verification_level", "tier_completeness_advisory",
+        "session_chain_epoch", "session_chain_root"
+      ],
+      "properties": {
+        "verification_level": {
+          "type": "string",
+          "enum": ["signed", "local_inclusion_verified", "global_inclusion_verified"],
+          "description": "FR-038 axis 1 — proof strength; transitions monotonically"
+        },
+        "tier_completeness_advisory": {
+          "type": "string",
+          "enum": ["complete", "partial"],
+          "description": "FR-038 axis 2 — deployment-shape coverage; does not transition"
+        },
+        "session_chain_epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "FR-037 — which epoch contains this event"
+        },
+        "session_chain_root": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Merkle root of the epoch identified above (mutable across epochs)"
+        },
+        "inclusion_proof_local": {
+          "type": ["string", "null"],
+          "contentEncoding": "base64",
+          "description": "RFC 9162 TransItem; in-session Merkle proof; present when verification_level >= local_inclusion_verified"
+        },
+        "inclusion_proof_global": {
+          "type": ["string", "null"],
+          "contentEncoding": "base64",
+          "description": "RFC 9162 TransItem; global-ledger inclusion proof for the session-chain epoch root; present when verification_level == global_inclusion_verified"
+        },
+        "commit_retry_exhausted": {
+          "type": "boolean",
+          "default": false,
+          "description": "FR-040 / SC-015 surface"
+        },
+        "session_state": {
+          "type": "string",
+          "enum": ["active", "interim_committed", "commit_retry", "commit_retry_exhausted", "aborted", "cancelled", "committed"],
+          "description": "FR-044 session-lifecycle state at time of query"
+        }
+      }
+    },
+    "ULID": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    }
+  }
+}

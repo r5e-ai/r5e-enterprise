@@ -1,0 +1,299 @@
+# Phase-1 CI gate. Matrix runs on Linux x86_64 (primary) and aarch64 (for Graviton + Appliance-ARM forward-compat).
+# macOS runners are NOT in the CI matrix — development platform only; Phase-1 targets Linux exclusively for
+# netns + iptables behavior (Governance shapes).
+#
+# Stability fixture assertion (T045) + Credo PI-neutrality check (T048) are HARD gates.
+#
+# `.gitlab-ci.yml` is the authoritative gate set; this workflow mirrors it.
+# It runs every gate that file runs and a few more (ESLint, the UI codegen
+# drift gates, the production build). Keep it a superset: a gate added
+# there is added here. Neither pipeline has ever run against the release's
+# public source pins — they are not on any remote — so a green run here
+# is not evidence of the reproducibility claim; see `docs/version-pins.md`.
+
+name: CI
+
+on:
+  push:
+    branches: ["main", "001-api-jido-foundations"]
+  pull_request:
+
+jobs:
+  # First gate: provenance before anything else is spent on the change. DCO on
+  # every commit in the pull-request range, and the CLA on the author's
+  # account. `.gitlab-ci.yml` runs the same script as `contribution:signing`.
+  contribution-signing:
+    name: contribution signing
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    env:
+      R5E_REQUIRE_CLA: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The check walks the whole pull-request range, so a shallow clone
+          # would make it pass by seeing nothing.
+          fetch-depth: 0
+      - name: DCO and CLA
+        run: |
+          scripts/check-contribution-signing.sh \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.user.login }}"
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux-x86_64
+            runner: ubuntu-24.04
+          - os: linux-aarch64
+            runner: ubuntu-24.04-arm
+    env:
+      MIX_ENV: test
+      R5E_CI_CONTEXT: ${{ runner.temp }}/r5e-ci-context
+      POSTGRES_USER: recurse
+      POSTGRES_PASSWORD: recurse
+      POSTGRES_DB: recurse_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test exact-source preparation boundary
+        run: python3 -m unittest discover -s test/scripts -p '*_test.py' -v
+
+      - name: Prepare exact core + kernel + enterprise sources
+        id: sources
+        run: |
+          python3 scripts/prepare-ci-sources.py \
+            --enterprise-source "$GITHUB_WORKSPACE" \
+            --enterprise-commit "$GITHUB_SHA" \
+            --output "$R5E_CI_CONTEXT" \
+            --metadata "$RUNNER_TEMP/r5e-source.env"
+          . "$RUNNER_TEMP/r5e-source.env"
+          echo "source_sha256=$R5E_SOURCE_SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Elixir/OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.0"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.92"
+
+      - name: Start PostgreSQL
+        run: |
+          set -euo pipefail
+
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql postgresql-contrib
+          fi
+
+          sudo systemctl start postgresql || sudo service postgresql start
+
+          for _ in $(seq 1 30); do
+            if pg_isready -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+          pg_isready -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}"
+
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'recurse') THEN
+              CREATE ROLE recurse LOGIN PASSWORD 'recurse' CREATEDB;
+            ELSE
+              ALTER ROLE recurse WITH LOGIN PASSWORD 'recurse' CREATEDB;
+            END IF;
+          END
+          $$;
+          SQL
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise/deps
+            ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise/_build
+            ${{ env.R5E_CI_CONTEXT }}/r5e-kernel/deps
+            ${{ env.R5E_CI_CONTEXT }}/r5e-kernel/_build
+            ${{ env.R5E_CI_CONTEXT }}/r5e-core/verifier/deps
+            ${{ env.R5E_CI_CONTEXT }}/r5e-core/verifier/_build
+            ~/.cargo
+            ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise/native/recurse_cedar/target
+            ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise/native/recurse_spiffe/target
+            ${{ env.R5E_CI_CONTEXT }}/r5e-kernel/native/r5e_cedar/target
+          # Toolchain version pinned in the cache key so a Rust upgrade
+          # invalidates ~/.cargo cleanly. Previously the `restore-keys`
+          # fallback (`mix-`) accepted any prior cache, including those
+          # built by a different rustc — which surfaces as a silent
+          # `cargo metadata` failure during Rustler NIF compilation
+          # (Rustler swallows cargo's stderr). Bump the literal `rust1.92`
+          # token whenever the toolchain version above changes.
+          key: ${{ runner.os }}-${{ matrix.os }}-${{ runner.arch }}-mix-rust1.92-${{ steps.sources.outputs.source_sha256 }}
+          restore-keys: ${{ runner.os }}-${{ matrix.os }}-${{ runner.arch }}-mix-rust1.92-
+
+      - name: mix deps.get
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: mix deps.get
+
+      # Diagnostic guard: surface the actual cargo error if metadata
+      # fails (Rustler's `RuntimeError` only says "calling cargo metadata
+      # failed" without including cargo's stderr — so a failure during
+      # `mix compile` becomes effectively undebuggable from the CI log
+      # alone). Running cargo metadata directly here ensures any failure
+      # comes with cargo's real diagnostic.
+      - name: Cargo metadata sanity (NIF crates)
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: |
+          cargo metadata --manifest-path native/recurse_cedar/Cargo.toml --format-version 1 > /dev/null
+          cargo metadata --manifest-path native/recurse_spiffe/Cargo.toml --format-version 1 > /dev/null
+          cargo metadata --manifest-path ../r5e-kernel/native/r5e_cedar/Cargo.toml --format-version 1 > /dev/null
+
+      - name: mix compile --warnings-as-errors
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: mix compile --warnings-as-errors
+
+      - name: Prepare test database
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: |
+          mix ecto.drop --quiet || true
+          mix ecto.create --quiet
+          mix ecto.migrate
+
+      - name: Install yq (for contract validation — T057)
+        run: |
+          sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_$(dpkg --print-architecture)"
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Contracts validation (T057 — SC-003/SC-007/SC-008)
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: mix recurse.contracts.validate
+
+      - name: mix test
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: mix test
+
+      - name: Cedar stability fixture (Deliverable O — FR-039)
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: mix recurse.cedar.stability_check
+
+      - name: mix credo --strict (incl. Provider-Interface Neutrality check per D16)
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: mix credo --strict
+
+      - name: cargo test (NIFs)
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-enterprise
+        run: |
+          cargo test --manifest-path native/recurse_cedar/Cargo.toml
+          cargo test --manifest-path native/recurse_spiffe/Cargo.toml
+          cargo test --manifest-path ../r5e-kernel/native/r5e_cedar/Cargo.toml
+
+      # B5 (RC review 2026-09-05): the kernel's own warnings gate. Mix does
+      # not propagate --warnings-as-errors to dependencies, so compiling
+      # the umbrella with it left every kernel warning ungated in both
+      # pipelines while the release notes listed the gate as passing.
+      - name: Kernel compile --warnings-as-errors + test suite
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-kernel
+        run: mix deps.get && mix compile --warnings-as-errors && mix test
+
+      - name: Core verifier unit + conformance
+        working-directory: ${{ env.R5E_CI_CONTEXT }}/r5e-core/verifier
+        run: mix deps.get && mix test && mix conformance
+
+  # F004 T013 — SPA build + test pipeline.
+  # The Audit Console SPA lives in ui/ and is independently testable.
+  # The pipeline runs codegen + drift gate + unit tests + production build.
+  # Playwright e2e is gated behind PLAYWRIGHT_E2E=1 because it requires
+  # a running Gateway (boots ~30s); CI runs it on PRs that touch ui/ or
+  # apps/recurse_gateway/lib/recurse_gateway/admin/.
+  ui:
+    name: ui (SPA — F004)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js + pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: npm install -g pnpm@9
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('ui/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: pnpm install
+        working-directory: ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Tailwind config drift gate (gen + diff)
+        working-directory: ui
+        run: |
+          pnpm gen:tailwind
+          git diff --exit-code tailwind.config.ts || (echo "::error::tailwind.config.ts is stale relative to design tokens — run 'pnpm gen:tailwind' locally and commit"; exit 1)
+
+      - name: Types codegen drift gate (gen + diff)
+        working-directory: ui
+        run: |
+          pnpm gen:types
+          git diff --exit-code src/lib/types.ts || (echo "::error::src/lib/types.ts is stale relative to apps/recurse_gateway/priv/schemas/*.json — run 'pnpm gen:types' locally and commit"; exit 1)
+
+      - name: ESLint
+        working-directory: ui
+        run: pnpm lint
+
+      - name: Vitest (unit tests)
+        working-directory: ui
+        run: pnpm test
+
+      - name: Vite build
+        working-directory: ui
+        run: pnpm build
+
+      # Mirrors `.gitlab-ci.yml`'s `ui:checks`, which gates both of these
+      # and is the authoritative set.
+      - name: TypeScript typecheck
+        working-directory: ui
+        run: pnpm typecheck
+
+      - name: Component shadow + design checks
+        working-directory: ui
+        run: |
+          pnpm run check:component-shadows
+          pnpm run check:design
+
+      # Playwright e2e — opt-in. Boots a Gateway via mix run --no-halt and
+      # exercises the US1–US6 acceptance scenarios.
+      - name: Set up Elixir/OTP (for Playwright Gateway boot)
+        if: env.PLAYWRIGHT_E2E == '1'
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "28.0"
+
+      - name: Install Playwright browsers
+        if: env.PLAYWRIGHT_E2E == '1'
+        working-directory: ui
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: Playwright e2e
+        if: env.PLAYWRIGHT_E2E == '1'
+        working-directory: ui
+        run: pnpm test:e2e

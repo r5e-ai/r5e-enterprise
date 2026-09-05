@@ -1,0 +1,713 @@
+#!/usr/bin/env bash
+# recurse-verify — off-platform Export Evidence verifier (F002 T065).
+#
+# Chains an 8-step verification (Steps 0-7) against the F002 Export
+# Evidence zip layout produced by Recurse.Gateway.AuditPlane.EvidenceZipBuilder.
+# Uses only stock tools (openssl, jq, unzip, sha256sum/shasum) plus the
+# vendored RFC 9162 Merkle verifier at `verify-bundled-merkle` (T066).
+#
+# Spec 012 S6b: predicate-only receipts (every LLM-proxy receipt) ship the
+# JCS-encoded predicate body at predicate/<run_id>.json — the exact bytes
+# the signed payload_hash is the SHA-256 of — so Step 5 is MATCH / FAIL
+# for them, not SKIPPED. Step 7 hashes the retained request / response
+# bytes at payloads/<sha256> against the prompt_hash / response_hash that
+# body carries (MATCH / FAIL / NOT INCLUDED).
+#
+# MAKES NO NETWORK CALLS to Recurse infrastructure. The only optional
+# network call is `aws kms get-public-key` when --trust-anchor is a KMS
+# ARN, which uses the AUDITOR'S OWN AWS credentials against AWS's
+# public endpoint.
+#
+# See specs/002-standalone-gateway-vertical-slice/contracts/recurse_verify_spec.md
+# for the authoritative wire contract.
+#
+# Exit codes (strict per spec):
+#   0  Strict cryptographic pass: --trust-anchor supplied, Step 0 matched
+#      the zip's bundled signer pubkey, and Steps 1-7 passed.
+#   1  Verification FAILURE: any step failed (incl. Step 0 anchor mismatch).
+#   2  Unanchored PASS (WARNING): --trust-anchor omitted; Steps 1-7 passed
+#      using the zip's bundled pubkey as verifier key. NOT evidentiary-grade.
+#   3  Bad input: malformed zip, missing required tools, or bad flags.
+
+set -uo pipefail
+
+VERSION="0.3.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUNDLED_MERKLE="$SCRIPT_DIR/verify-bundled-merkle"
+# Optional vendored Cedar canonicalizer (Step 4 rule 1). Compiled from
+# native/recurse_cedar (same content-addressed cedar-policy pin as the
+# Gateway NIF): `cargo build --release --bin cedar-canonical-hash`.
+# When absent, Step 4 can only check the F002 raw-bytes compat rule.
+BUNDLED_CEDAR_CANONICAL="$SCRIPT_DIR/cedar-canonical-hash"
+
+ZIP=""; TRUST_ANCHOR=""; JSON_MODE=0; VERBOSE=0
+declare -a JSON_STEPS
+
+usage() {
+  cat <<EOF
+recurse-verify $VERSION (F002 build)
+
+Usage: recurse-verify --zip <path> [--trust-anchor <kms-arn-or-file>]
+                      [--json] [--verbose] [--help]
+
+  --zip            Required. Path to an Export Evidence .zip.
+  --trust-anchor   REQUIRED FOR EVIDENTIARY-GRADE VERIFICATION.
+                   Either an AWS KMS key ARN (resolved via
+                   \`aws kms get-public-key\` using YOUR OWN credentials)
+                   or a file path to a PEM/DER public key.
+                   Omission => exit 2 (unanchored pass, WARNING).
+  --json           Emit structured JSON report on stdout.
+  --verbose        Byte-level trace for debugging.
+  --help           Print this usage and exit 0.
+
+Exit codes:
+  0 = strict cryptographic pass (anchor supplied and matched)
+  1 = verification failure
+  2 = unanchored pass (WARNING — not evidentiary-grade)
+  3 = bad input (malformed zip, missing tools, or bad flags)
+
+See specs/002-standalone-gateway-vertical-slice/contracts/recurse_verify_spec.md
+EOF
+}
+
+# ---------- arg parsing ----------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --zip)           ZIP="${2:-}"; shift 2 ;;
+    --trust-anchor)  TRUST_ANCHOR="${2:-}"; shift 2 ;;
+    --json)          JSON_MODE=1; shift ;;
+    --verbose)       VERBOSE=1; shift ;;
+    -h|--help)       usage; exit 0 ;;
+    *) echo "recurse-verify: unknown flag: $1" >&2; usage >&2; exit 3 ;;
+  esac
+done
+
+[[ -n "$ZIP" ]] || { echo "recurse-verify: --zip is required" >&2; exit 3; }
+[[ -f "$ZIP" ]] || { echo "recurse-verify: bad input — zip not found: $ZIP" >&2; exit 3; }
+
+# ---------- tool preflight ----------
+# `sha256sum` or `shasum -a 256` on macOS. Both are common stock.
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA256_CMD="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  SHA256_CMD="shasum -a 256"
+else
+  echo "recurse-verify: bad input — need sha256sum OR shasum in PATH" >&2; exit 3
+fi
+
+# python3 runs the Step 3 fold-helper; without it Step 3 reported "malformed",
+# which is not what was wrong (found on a bare CI image, 2026-09-05).
+for t in openssl jq unzip xxd python3; do
+  command -v "$t" >/dev/null 2>&1 \
+    || { echo "recurse-verify: bad input — $t not found (install it: brew install $t)" >&2; exit 3; }
+done
+
+[[ -x "$BUNDLED_MERKLE" ]] \
+  || { echo "recurse-verify: bad input — $BUNDLED_MERKLE missing or not executable" >&2; exit 3; }
+
+# If --trust-anchor looks like an AWS ARN, we need the aws CLI.
+IS_ARN=0
+if [[ -n "$TRUST_ANCHOR" && "$TRUST_ANCHOR" == arn:aws:kms:* ]]; then
+  IS_ARN=1
+  command -v aws >/dev/null 2>&1 \
+    || { echo "recurse-verify: bad input — aws CLI not found; use --trust-anchor /path/to/pubkey.pem instead" >&2; exit 3; }
+fi
+
+# ---------- helpers ----------
+sha256_hex() {
+  # Read stdin, emit lowercase 64-hex digest.
+  $SHA256_CMD | awk '{print $1}'
+}
+sha256_file_hex() { $SHA256_CMD "$1" | awk '{print $1}'; }
+
+# For JSON mode, accumulate step records.
+json_step() {
+  # $1=step, $2=status, $3=message (optional)
+  local step="$1" status="$2" message="${3:-}"
+  JSON_STEPS+=("{\"step\":$step,\"status\":\"$status\",\"message\":$(printf '%s' "$message" | jq -R -s '.')}")
+}
+
+emit_trace() {
+  # $1 = line (human mode only)
+  [[ $JSON_MODE -eq 1 ]] || echo "$1"
+}
+
+cleanup() {
+  [[ -n "${WORKDIR:-}" && -d "${WORKDIR:-}" ]] && rm -rf "$WORKDIR"
+}
+trap cleanup EXIT
+
+# ---------- extract zip ----------
+WORKDIR="$(mktemp -d -t recurse-verify.XXXXXX)"
+if ! unzip -q -o "$ZIP" -d "$WORKDIR" 2>/dev/null; then
+  echo "recurse-verify: bad input — malformed zip (unzip refused): $ZIP" >&2
+  exit 3
+fi
+
+# Required members per EvidenceZipBuilder.
+for member in \
+    signed_predicate.json \
+    outer_container.json \
+    payload.json \
+    inclusion_proof.transitem \
+    signing_key.pem \
+    policy_bundle.cedar \
+    manifest.json; do
+  [[ -f "$WORKDIR/$member" ]] \
+    || { echo "recurse-verify: bad input — zip missing required member: $member" >&2; exit 3; }
+done
+
+SP="$WORKDIR/signed_predicate.json"
+OC="$WORKDIR/outer_container.json"
+PAYLOAD="$WORKDIR/payload.json"
+PROOF="$WORKDIR/inclusion_proof.transitem"
+ZIP_PEM="$WORKDIR/signing_key.pem"
+POLICY="$WORKDIR/policy_bundle.cedar"
+MANIFEST="$WORKDIR/manifest.json"
+
+# ---------- banner ----------
+emit_trace ""
+emit_trace "recurse-verify $VERSION (F002 build)"
+emit_trace "Zip: $ZIP"
+if [[ -n "$TRUST_ANCHOR" ]]; then
+  if [[ $IS_ARN -eq 1 ]]; then
+    emit_trace "Trust anchor: $TRUST_ANCHOR (resolved via aws kms get-public-key)"
+  else
+    emit_trace "Trust anchor: $TRUST_ANCHOR (file)"
+  fi
+else
+  emit_trace "Trust anchor: (none — unanchored mode)"
+  emit_trace ""
+  emit_trace "WARNING: no --trust-anchor supplied."
+  emit_trace "This verification uses the zip's bundled signer pubkey as its own verifier key."
+  emit_trace "This is NOT evidentiary-grade under SOC2/ISO27001/HIPAA/FedRAMP."
+  emit_trace "Auditors MUST re-run with --trust-anchor pointing at a customer-supplied anchor"
+  emit_trace "(KMS key ARN or independently-obtained public key file)."
+fi
+emit_trace ""
+
+# Accumulates the final verdict; start at 0 (strict pass) if anchored, 2 (unanchored) otherwise.
+FINAL_EXIT=0
+[[ -n "$TRUST_ANCHOR" ]] || FINAL_EXIT=2
+
+# Once a step fails we latch FINAL_EXIT=1 and keep tracing so the auditor
+# sees every failure. But individual step functions return early on their
+# own failures.
+fail_step() {
+  FINAL_EXIT=1
+  emit_trace "    FAIL: $2"
+  json_step "$1" "fail" "$2"
+}
+
+pass_step() {
+  emit_trace "    $2"
+  json_step "$1" "pass" "${3:-}"
+}
+
+skip_step() {
+  emit_trace "    SKIPPED ($2)"
+  json_step "$1" "skipped" "$2"
+}
+
+# ---------- Step 0: trust anchor match ----------
+emit_trace "[0] Trust anchor match"
+ANCHOR_PEM="$WORKDIR/trust_anchor.pem"
+if [[ -z "$TRUST_ANCHOR" ]]; then
+  skip_step 0 "no anchor supplied"
+else
+  if [[ $IS_ARN -eq 1 ]]; then
+    if ! aws kms get-public-key --key-id "$TRUST_ANCHOR" --output text --query PublicKey 2>/dev/null \
+          | base64 -d 2>/dev/null \
+          | openssl pkey -pubin -inform DER -outform PEM -out "$ANCHOR_PEM" 2>/dev/null; then
+      fail_step 0 "aws kms get-public-key failed for $TRUST_ANCHOR — check credentials/region"
+      emit_trace ""
+      emit_trace "VERIFY: FAIL"
+      exit 1
+    fi
+  else
+    [[ -f "$TRUST_ANCHOR" ]] \
+      || { echo "recurse-verify: bad input — --trust-anchor file not found: $TRUST_ANCHOR" >&2; exit 3; }
+    # Accept both PEM and DER inputs; normalize to PEM.
+    if openssl pkey -pubin -in "$TRUST_ANCHOR" -outform PEM -out "$ANCHOR_PEM" 2>/dev/null; then
+      : # PEM or DER accepted by openssl
+    elif openssl pkey -pubin -inform DER -in "$TRUST_ANCHOR" -outform PEM -out "$ANCHOR_PEM" 2>/dev/null; then
+      :
+    else
+      fail_step 0 "--trust-anchor is neither a PEM nor a DER public key: $TRUST_ANCHOR"
+      emit_trace ""
+      emit_trace "VERIFY: FAIL"
+      exit 1
+    fi
+  fi
+
+  # Normalize both keys to DER so we compare the canonical bytes (not the
+  # PEM whitespace / header variations).
+  expected_der=$(openssl pkey -pubin -in "$ANCHOR_PEM" -outform DER 2>/dev/null | sha256_hex) || \
+    { fail_step 0 "could not parse resolved trust anchor as a public key"; exit 1; }
+
+  zip_der=$(openssl pkey -pubin -in "$ZIP_PEM" -outform DER 2>/dev/null | sha256_hex) || \
+    { fail_step 0 "zip signing_key.pem is not a parseable public key"; exit 1; }
+
+  if [[ $VERBOSE -eq 1 ]]; then
+    emit_trace "    expected pubkey sha256: $expected_der"
+    emit_trace "    zip archive pubkey sha256: $zip_der"
+  fi
+
+  if [[ "$expected_der" == "$zip_der" ]]; then
+    pass_step 0 "MATCH (sha256: ${expected_der:0:16}...)" "sha256:$expected_der"
+  else
+    fail_step 0 "trust anchor does not match zip signing-key archive entry (expected=$expected_der zip=$zip_der)"
+    emit_trace ""
+    emit_trace "VERIFY: FAIL"
+    exit 1
+  fi
+fi
+
+# Under anchored mode we verify DSSE against the ANCHOR pem (already
+# equal to the zip pem); under unanchored we fall back to the zip pem.
+if [[ -f "$ANCHOR_PEM" ]]; then
+  VERIFIER_PEM="$ANCHOR_PEM"
+else
+  VERIFIER_PEM="$ZIP_PEM"
+fi
+
+# ---------- Step 1: DSSE signature ----------
+emit_trace "[1] DSSE signature (Constitution Principle III)"
+# Extract the JCS-encoded predicate bytes and signature bytes from signed_predicate.json.
+predicate_b64=$(jq -r '.signed_predicate_bytes_b64' "$SP") || predicate_b64=""
+sig_b64=$(jq -r '.dsse_signature_b64' "$SP") || sig_b64=""
+
+if [[ -z "$predicate_b64" || "$predicate_b64" == "null" || -z "$sig_b64" || "$sig_b64" == "null" ]]; then
+  fail_step 1 "signed_predicate.json missing signed_predicate_bytes_b64 / dsse_signature_b64"
+else
+  predicate_bin="$WORKDIR/predicate.jcs"
+  sig_raw="$WORKDIR/dsse.sig.raw"
+  pae_bin="$WORKDIR/dsse.pae"
+
+  printf '%s' "$predicate_b64" | openssl base64 -d -A > "$predicate_bin" 2>/dev/null || true
+  printf '%s' "$sig_b64"       | openssl base64 -d -A > "$sig_raw"       2>/dev/null || true
+
+  # Re-assemble PAE exactly as DSSE §2: "DSSEv1 SP LEN(type) SP type SP LEN(payload) SP payload".
+  payload_type="application/vnd.in-toto+json"
+  type_len=${#payload_type}
+  payload_len=$(wc -c < "$predicate_bin" | tr -d ' ')
+  {
+    printf 'DSSEv1 %d %s %d ' "$type_len" "$payload_type" "$payload_len"
+    cat "$predicate_bin"
+  } > "$pae_bin"
+
+  # Our signatures are ECDSA-P256 raw r||s (64 bytes) per research D4 / EnvelopeBuilder.
+  # openssl expects DER, so convert raw → DER before verify.
+  sig_size=$(wc -c < "$sig_raw" | tr -d ' ')
+
+  verify_dsse_es256() {
+    local der="$WORKDIR/dsse.sig.der"
+    # Raw r||s → DER SEQUENCE { INTEGER r, INTEGER s }. 32-byte each half.
+    local r_hex s_hex r_der s_der seq_body seq_len
+    r_hex=$(xxd -p -c 999 "$sig_raw" | cut -c1-64)
+    s_hex=$(xxd -p -c 999 "$sig_raw" | cut -c65-128)
+    # Strip leading zeros; re-pad with a single 0x00 if high bit is set (ASN.1 INTEGER rule).
+    r_hex=$(printf '%s' "$r_hex" | sed 's/^\(00\)*//' ; true)
+    s_hex=$(printf '%s' "$s_hex" | sed 's/^\(00\)*//' ; true)
+    [[ -n "$r_hex" ]] || r_hex="00"
+    [[ -n "$s_hex" ]] || s_hex="00"
+    first_r=$(printf '%s' "$r_hex" | cut -c1-2)
+    first_s=$(printf '%s' "$s_hex" | cut -c1-2)
+    # If high bit is set (>= 0x80), prepend 0x00 to keep INTEGER positive.
+    case "$first_r" in [89a-fA-F]?) r_hex="00$r_hex" ;; esac
+    case "$first_s" in [89a-fA-F]?) s_hex="00$s_hex" ;; esac
+    r_len=$(( ${#r_hex} / 2 ))
+    s_len=$(( ${#s_hex} / 2 ))
+    r_der=$(printf '02%02x%s' "$r_len" "$r_hex")
+    s_der=$(printf '02%02x%s' "$s_len" "$s_hex")
+    seq_body="$r_der$s_der"
+    seq_len=$(( ${#seq_body} / 2 ))
+    printf '30%02x%s' "$seq_len" "$seq_body" | xxd -r -p > "$der"
+    openssl dgst -sha256 -verify "$VERIFIER_PEM" -signature "$der" "$pae_bin" >/dev/null 2>&1
+  }
+
+  verify_dsse_rsa_or_ed() {
+    # Fallback: try openssl dgst (for RSA-PSS or EdDSA the signature is already in the
+    # openssl-expected form). Matches production if the signer ever deviates from ES256.
+    openssl dgst -sha256 -verify "$VERIFIER_PEM" -signature "$sig_raw" "$pae_bin" >/dev/null 2>&1
+  }
+
+  ok=0
+  if [[ "$sig_size" -eq 64 ]]; then
+    # ES256 raw r||s
+    verify_dsse_es256 && ok=1
+  fi
+  if [[ $ok -eq 0 ]]; then
+    verify_dsse_rsa_or_ed && ok=1
+  fi
+
+  if [[ $ok -eq 1 ]]; then
+    if [[ $VERBOSE -eq 1 ]]; then
+      emit_trace "    algorithm: ES256 (raw r||s, $sig_size bytes)"
+      emit_trace "    signed bytes (PAE): $(wc -c < "$pae_bin" | tr -d ' ') bytes"
+    fi
+    pass_step 1 "VALID (ES256)"
+  else
+    fail_step 1 "DSSE signature invalid at Step 1 — openssl dgst -verify rejected the signature over PAE"
+  fi
+fi
+
+# ---------- Step 2: RFC 9162 local inclusion ----------
+emit_trace "[2] RFC 9162 local inclusion (session-chain epoch root)"
+# The zip encodes both proofs length-prefixed in inclusion_proof.transitem:
+#   <sc_len:uint32 BE><sc_bytes><global_len:uint32 BE><global_bytes>
+# Decode here and write both out.
+if ! python3 - "$PROOF" "$WORKDIR/local.transitem" "$WORKDIR/global.transitem" <<'PYEOF' 2>/dev/null
+import sys, struct
+proof_path, local_path, global_path = sys.argv[1:4]
+with open(proof_path, 'rb') as f: b = f.read()
+sc_len, = struct.unpack('>I', b[:4])
+sc = b[4:4 + sc_len]
+off = 4 + sc_len
+g_len, = struct.unpack('>I', b[off:off + 4])
+g = b[off + 4: off + 4 + g_len]
+assert off + 4 + g_len == len(b), "trailing bytes after global proof"
+with open(local_path, 'wb') as f: f.write(sc)
+with open(global_path, 'wb') as f: f.write(g)
+PYEOF
+then
+  # Fallback: dd slicing (bash-only, no python3 on some macs).
+  # Read first 4 bytes as uint32 big-endian via od + awk.
+  sc_len=$(od -An -N4 -tu4 --endian=big "$PROOF" 2>/dev/null \
+    || od -An -N4 -tu4 -j0 "$PROOF")
+  sc_len=$(printf '%d' "$sc_len")
+  dd if="$PROOF" of="$WORKDIR/local.transitem"  bs=1 skip=4 count="$sc_len" 2>/dev/null
+  g_off=$((4 + sc_len))
+  g_len=$(dd if="$PROOF" bs=1 skip="$g_off" count=4 2>/dev/null | od -An -N4 -tu4)
+  g_len=$(printf '%d' "$g_len")
+  dd if="$PROOF" of="$WORKDIR/global.transitem" bs=1 skip=$((g_off + 4)) count="$g_len" 2>/dev/null
+fi
+
+if [[ ! -s "$WORKDIR/local.transitem" || ! -s "$WORKDIR/global.transitem" ]]; then
+  fail_step 2 "could not decode inclusion_proof.transitem length-prefixed envelope"
+  fail_step 3 "global proof file not recovered"
+else
+  # Local proof: leaf_data = signed_predicate_bytes, leaf_hash = SHA-256(0x00 || bytes).
+  # session_chain_root is hex in outer_container.json; auditor must convert.
+  local_leaf_hash=$({ printf '\x00'; cat "$predicate_bin"; } | sha256_hex)
+  session_chain_root=$(jq -r '.session_chain_root' "$OC")
+
+  if [[ -z "$session_chain_root" || "$session_chain_root" == "null" ]]; then
+    fail_step 2 "outer_container.session_chain_root missing"
+  elif "$BUNDLED_MERKLE" \
+         --proof "$WORKDIR/local.transitem" \
+         --leaf-hash "$local_leaf_hash" \
+         --root-hash "$session_chain_root" >/dev/null 2>&1; then
+    if [[ $VERBOSE -eq 1 ]]; then
+      emit_trace "    leaf hash (session_chain): $local_leaf_hash"
+      emit_trace "    expected session_chain_root: $session_chain_root"
+    fi
+    pass_step 2 "MATCH"
+  else
+    fail_step 2 "local inclusion proof did not reconstruct session_chain_root"
+  fi
+
+  # ---------- Step 3: RFC 9162 global inclusion ----------
+  emit_trace "[3] RFC 9162 global inclusion path — internal consistency only"
+  # Global proof: its leaf is SHA-256(0x00 || epoch_root). The epoch_root
+  # IS the session_chain_root (Standalone 1-run-1-session heuristic,
+  # PostgresMerkleLedger.build_global_proof). We don't have the global
+  # tree root in the zip directly; the auditor either (a) trusts the
+  # global TransItem's self-contained tree_size + inclusion_path to
+  # reconstruct, in which case a mismatch against the epoch root is the
+  # only possible verdict we can assert without a recorded top-level
+  # global root, OR (b) reads .global_ledger_root if the Gateway ever
+  # emits it in the outer container. Phase-1 shape: we reconstruct the
+  # root via the bundled verifier and assert the leaf/tree_size shape is
+  # internally consistent. Any mismatch in the proof folding fails.
+  #
+  # To exercise a concrete check we use the TransItem's encoded
+  # leaf_index + tree_size combined with the bundled verifier: pass the
+  # SESSION_CHAIN_ROOT's hash_leaf output, and a trivially-derived root
+  # (the verifier will compute the fold and tell us whether that leaf is
+  # at the claimed position). We compute the expected global root from
+  # the proof itself by asking the bundled verifier for the fold result.
+  # For Phase-1 we assert the bundled verifier accepts the proof when
+  # the expected root equals the fold output; we don't have a separately
+  # stored global_root in outer_container, so we read it from manifest
+  # if present, or synthesize via a helper pass.
+  global_leaf=$({ printf '\x00'; printf '%s' "$session_chain_root" | xxd -r -p; } | sha256_hex)
+
+  # Try to find the global root in the manifest / outer container;
+  # EvidenceZipBuilder.outer_container_json currently stores
+  # `global_inclusion_proof_b64` (the raw proof) but not the top-level
+  # global tree root separately. The global root is implicit in the
+  # TransItem: run a one-off fold sanity by asserting the single-leaf
+  # case (tree_size=1) or by decoding the TransItem header and
+  # reconstructing. For Phase-1 we verify the inclusion path's internal
+  # consistency — verify-bundled-merkle enforces the tree-size/leaf-index
+  # invariants and would reject a malformed or tampered path.
+  # The root below is folded from the proof itself and then re-checked
+  # against that same fold, so a pass says the path is internally
+  # consistent — it does not say the epoch root is in the ledger.
+  # Comparing the computed root against the root the Gateway published
+  # in its receipts API is out of scope for this verifier and is not
+  # performed anywhere in this release.
+  if python3 - "$WORKDIR/global.transitem" "$global_leaf" <<'PYEOF' >"$WORKDIR/global_root.txt" 2>/dev/null
+import sys, hashlib, struct
+proof_path, leaf_hex = sys.argv[1:3]
+with open(proof_path, 'rb') as f: b = f.read()
+tag, = struct.unpack('>H', b[:2])
+assert tag == 0x0100
+log_id = b[2:34]
+leaf_index, tree_size = struct.unpack('>QQ', b[34:50])
+path_len, = struct.unpack('>H', b[50:52])
+assert path_len == len(b) - 52
+assert path_len % 32 == 0
+path = [b[52 + i*32 : 52 + (i+1)*32] for i in range(path_len // 32)]
+h = bytes.fromhex(leaf_hex)
+fn_ = leaf_index
+sn = tree_size - 1
+if tree_size == 1:
+    print(h.hex())
+    sys.exit(0)
+assert leaf_index < tree_size, "leaf_index >= tree_size"
+pi = 0
+while pi < len(path):
+    if fn_ == sn and fn_ % 2 == 0:
+        fn_ >>= 1; sn >>= 1; continue
+    sib = path[pi]
+    if fn_ % 2 == 1:
+        h = hashlib.sha256(b'\x01' + sib + h).digest()
+    else:
+        h = hashlib.sha256(b'\x01' + h + sib).digest()
+    fn_ >>= 1; sn >>= 1; pi += 1
+assert sn == 0, "fn_/sn not fully collapsed"
+print(h.hex())
+PYEOF
+  then
+    computed_global_root=$(cat "$WORKDIR/global_root.txt" | tr -d '\n')
+    if [[ -n "$computed_global_root" ]]; then
+      # Replay via the BUNDLED verifier against the same computed root
+      # so the trusted-code-path is bash+openssl, not python3.
+      if "$BUNDLED_MERKLE" \
+           --proof "$WORKDIR/global.transitem" \
+           --leaf-hash "$global_leaf" \
+           --root-hash "$computed_global_root" >/dev/null 2>&1; then
+        if [[ $VERBOSE -eq 1 ]]; then
+          emit_trace "    leaf hash (global): $global_leaf"
+          emit_trace "    computed global_root: $computed_global_root"
+        fi
+        emit_trace "    the computed root is folded from this proof and re-checked against itself;"
+        emit_trace "    it is not compared against any independently published ledger root"
+        pass_step 3 "CONSISTENT (computed root $computed_global_root)"
+      else
+        fail_step 3 "bundled verifier rejected self-consistent fold — malformed global TransItem"
+      fi
+    else
+      fail_step 3 "python3 global-proof fold helper returned empty root"
+    fi
+  else
+    fail_step 3 "global inclusion proof malformed or python3 unavailable for fold-helper"
+  fi
+fi
+
+# ---------- Step 4: policy_canonical_hash ----------
+emit_trace "[4] policy_canonical_hash"
+locked_hash_hex=$(jq -r '.policy_canonical_hash' "$SP")
+computed_bundle_sha=$(sha256_file_hex "$POLICY")
+# System-event sentinel — SHA-256("recurse.system.no-policy.v1"), the synthetic
+# hash EnvelopeBuilder stamps on predicates whose emission was NOT Cedar-gated
+# at the envelope level (UI lifecycle events; 009 LLM-proxy tool events, whose
+# Cedar decision + bundle hash live INSIDE the DSSE-signed predicate instead).
+# Mirrors LocalVerifyHandler.check_policy_hash_match/1 +
+# PredicateOnlyUri.system_event_no_policy_hash/0. Recomputed here rather than
+# hard-coded so the derivation stays auditable.
+system_no_policy_sentinel=$(printf 'recurse.system.no-policy.v1' | sha256_hex)
+if [[ -z "$locked_hash_hex" || "$locked_hash_hex" == "null" ]]; then
+  fail_step 4 "signed_predicate.policy_canonical_hash missing"
+elif [[ "$locked_hash_hex" == "$system_no_policy_sentinel" ]]; then
+  emit_trace "    receipt carries the system-event no-policy sentinel"
+  emit_trace "    (SHA-256(\"recurse.system.no-policy.v1\") = $system_no_policy_sentinel):"
+  emit_trace "    this predicate's emission was not Cedar-gated at the envelope level, so"
+  emit_trace "    there is no active-bundle hash to compare. Any policy decision it records"
+  emit_trace "    (e.g. a tool-use denial) is inside the DSSE-signed predicate verified in Step 1."
+  pass_step 4 "MATCH (system-event sentinel — no envelope-level Cedar evaluation to bind)"
+elif [[ "$locked_hash_hex" == "$computed_bundle_sha" ]]; then
+  if [[ $VERBOSE -eq 1 ]]; then
+    emit_trace "    computed SHA-256(policy_bundle.cedar): $computed_bundle_sha"
+    emit_trace "    expected (from signed_predicate):       $locked_hash_hex"
+  fi
+  pass_step 4 "MATCH (rule 2: SHA-256 of raw bundle bytes — F002 compat)"
+else
+  # Dual-rule matching, mirroring the Gateway's
+  # Recurse.Gateway.AuditPlane.Resolvers.PolicyBundle.match_against_bundle/2:
+  #   rule 1 — post-F002 JCS rule: SHA-256(JCS(PolicySet::to_json(parse(source)))),
+  #            recomputed offline via the vendored cedar-canonical-hash helper
+  #            (same pinned cedar-policy crate the Gateway NIF uses).
+  #   rule 2 — F002 backward-compat rule: SHA-256 of the raw bundle bytes
+  #            (checked above; it did not match).
+  if [[ -x "$BUNDLED_CEDAR_CANONICAL" ]]; then
+    jcs_hash="$("$BUNDLED_CEDAR_CANONICAL" "$POLICY" 2>/dev/null || true)"
+    if [[ -n "$jcs_hash" && "$locked_hash_hex" == "$jcs_hash" ]]; then
+      if [[ $VERBOSE -eq 1 ]]; then
+        emit_trace "    computed JCS canonical hash: $jcs_hash"
+        emit_trace "    raw-bytes SHA-256 (rule 2):  $computed_bundle_sha (no match — expected for commented bundles)"
+      fi
+      pass_step 4 "MATCH (rule 1: Cedar-canonical JCS hash via bundled cedar-canonical-hash)"
+    else
+      fail_step 4 "policy_canonical_hash mismatch under BOTH rules: receipt=$locked_hash_hex jcs=$jcs_hash raw_bytes=$computed_bundle_sha — the bundled policy is not the one this receipt was evaluated against"
+    fi
+  else
+    fail_step 4 "policy_canonical_hash mismatch (rule 2 raw-bytes: receipt=$locked_hash_hex bundle=$computed_bundle_sha); rule 1 (Cedar-canonical JCS) NOT CHECKED — $BUNDLED_CEDAR_CANONICAL missing; build it from native/recurse_cedar to complete Step 4"
+  fi
+fi
+
+# ---------- Step 5: payload_hash ----------
+emit_trace "[5] payload_hash"
+expected_payload_hash=$(jq -r '.payload_hash' "$SP")
+computed_payload_hash=$(sha256_file_hex "$PAYLOAD")
+payload_uri=$(jq -r '.payload_uri // empty' "$SP")
+receipt_run_id=$(jq -r '.run_id // empty' "$SP")
+placeholder_predicate_only=$(jq -r '.predicate_only // false' "$PAYLOAD" 2>/dev/null || echo false)
+# Spec 012 S6b — for predicate-only receipts the Gateway retains the
+# JCS-encoded predicate body (the exact bytes payload_hash is the SHA-256 of)
+# and the export packs it at predicate/<run_id>.json. Its presence turns this
+# step from SKIPPED into a real recomputation; Step 7 then reads the
+# prompt_hash / response_hash it carries.
+PREDICATE_BODY=""
+PREDICATE_BODY_OK=0
+if [[ -n "$receipt_run_id" && -f "$WORKDIR/predicate/$receipt_run_id.json" ]]; then
+  PREDICATE_BODY="$WORKDIR/predicate/$receipt_run_id.json"
+fi
+if [[ "$payload_uri" == recurse://system/predicate-only/* || "$placeholder_predicate_only" == "true" ]]; then
+  # Predicate-only receipt (:llm_call_attested, :tool_use_denied, :ui_*):
+  # payload_uri names no detached payload; payload_hash = SHA-256 over the
+  # JCS predicate body. The zip's payload.json is an explanatory placeholder,
+  # not evidence; hashing it would produce a false FAIL.
+  emit_trace "    payload_uri: $payload_uri"
+  if [[ -z "$expected_payload_hash" || "$expected_payload_hash" == "null" ]]; then
+    fail_step 5 "signed_predicate.payload_hash missing"
+  elif [[ -n "$PREDICATE_BODY" ]]; then
+    computed_body_hash=$(sha256_file_hex "$PREDICATE_BODY")
+    body_bytes=$(wc -c < "$PREDICATE_BODY" | tr -d ' ')
+    if [[ "$expected_payload_hash" == "$computed_body_hash" ]]; then
+      if [[ $VERBOSE -eq 1 ]]; then
+        emit_trace "    predicate body:   predicate/$receipt_run_id.json ($body_bytes bytes)"
+        emit_trace "    computed SHA-256: $computed_body_hash"
+        emit_trace "    expected:         $expected_payload_hash"
+      fi
+      pass_step 5 "MATCH (predicate body predicate/$receipt_run_id.json, $body_bytes bytes, hashes to payload_hash)" "sha256:$computed_body_hash"
+      PREDICATE_BODY_OK=1
+    else
+      fail_step 5 "predicate body hash mismatch at Step 5: receipt=$expected_payload_hash predicate/$receipt_run_id.json=$computed_body_hash — the packed predicate body is not the one this receipt signed"
+    fi
+  else
+    # No body in the export: nothing to recompute. The hash is still bound
+    # by the DSSE signature (Step 1); what is missing is the ability to
+    # read the claims that hash commits to. Receipts written before spec
+    # 012 S6b, or whose CAS put failed, land here.
+    skip_step 5 "N/A — predicate-only receipt and the export carries no predicate/<run_id>.json: the body payload_hash commits to was not retained; the hash is bound only by the DSSE signature verified in Step 1"
+  fi
+elif [[ -z "$expected_payload_hash" || "$expected_payload_hash" == "null" ]]; then
+  fail_step 5 "signed_predicate.payload_hash missing"
+elif [[ "$expected_payload_hash" == "$computed_payload_hash" ]]; then
+  if [[ $VERBOSE -eq 1 ]]; then
+    emit_trace "    payload bytes:   $(wc -c < "$PAYLOAD" | tr -d ' ')"
+    emit_trace "    computed SHA-256: $computed_payload_hash"
+    emit_trace "    expected:         $expected_payload_hash"
+  fi
+  pass_step 5 "MATCH"
+else
+  fail_step 5 "payload_hash mismatch at Step 5: receipt=$expected_payload_hash payload=$computed_payload_hash"
+fi
+
+# ---------- Step 6: verification_level + tier_completeness_advisory ----------
+emit_trace "[6] verification_level + tier_completeness_advisory"
+vlevel=$(jq -r '.verification_level' "$OC")
+advisory=$(jq -r '.tier_completeness_advisory' "$OC")
+if [[ -z "$vlevel" || "$vlevel" == "null" ]]; then
+  fail_step 6 "outer_container.verification_level missing"
+else
+  case "$vlevel" in
+    signed)
+      emit_trace "    verification_level: signed (pre-commit — will advance to local/global at next epoch)" ;;
+    local_inclusion_verified)
+      emit_trace "    verification_level: local_inclusion_verified (reported by producer, not checked)" ;;
+    global_inclusion_verified)
+      emit_trace "    verification_level: global_inclusion_verified (reported by producer, not checked)" ;;
+    *)
+      emit_trace "    verification_level: $vlevel (unexpected value)" ;;
+  esac
+  case "$advisory" in
+    partial)
+      emit_trace "    tier_completeness_advisory: partial — the gateway attests the calls routed through it;"
+      emit_trace "                                coverage is a property of the deployment (see docs/deployment-shapes.md)" ;;
+    complete)
+      emit_trace "    tier_completeness_advisory: complete — the producer's claim that all agent"
+      emit_trace "                                egress was recorded (reported by producer, not checked)" ;;
+    *)
+      emit_trace "    tier_completeness_advisory: $advisory" ;;
+  esac
+  pass_step 6 "INTERPRETED" "verification_level=$vlevel tier_completeness_advisory=$advisory"
+fi
+
+# ---------- Step 7: detached payloads (spec 012 S6b) ----------
+# The predicate body verified in Step 5 carries prompt_hash / response_hash
+# ("sha256:<hex>") over the upstream request body and the concatenated
+# upstream response bytes. When the Gateway retained them
+# (R5E_RETAIN_PAYLOADS=true) the export packs each at payloads/<hex>.
+# MATCH / FAIL per payload; NOT INCLUDED is a statement about retention,
+# not a failure — the hashes themselves are still signed.
+emit_trace "[7] detached payloads (prompt_hash / response_hash)"
+if [[ -z "$PREDICATE_BODY" ]]; then
+  skip_step 7 "no predicate body in the export — no prompt_hash / response_hash to check payloads against"
+elif [[ $PREDICATE_BODY_OK -ne 1 ]]; then
+  skip_step 7 "NOT CHECKED — the predicate body failed Step 5, so the hashes it carries are not trusted"
+else
+  step7_fail=0; step7_match=0; step7_missing=0; step7_msgs=""
+  for role in prompt response; do
+    h=$(jq -r ".predicate.${role}_hash // empty" "$PREDICATE_BODY" | sed 's/^sha256://')
+    if [[ -z "$h" ]]; then
+      emit_trace "    ${role}: predicate carries no ${role}_hash"
+      continue
+    fi
+    f="$WORKDIR/payloads/$h"
+    if [[ -f "$f" ]]; then
+      actual=$(sha256_file_hex "$f")
+      nbytes=$(wc -c < "$f" | tr -d ' ')
+      if [[ "$actual" == "$h" ]]; then
+        emit_trace "    ${role}: MATCH (payloads/${h:0:16}..., $nbytes bytes hash to ${role}_hash)"
+        step7_match=$((step7_match + 1)); step7_msgs="${step7_msgs}${role}=match;"
+      else
+        emit_trace "    FAIL: ${role} payload hash mismatch at Step 7: predicate=$h payloads/$h=$actual"
+        step7_fail=$((step7_fail + 1)); step7_msgs="${step7_msgs}${role}=mismatch;"
+      fi
+    else
+      emit_trace "    ${role}: NOT INCLUDED (payloads/${h:0:16}... absent — payload retention off, capture truncated, or not exported)"
+      step7_missing=$((step7_missing + 1)); step7_msgs="${step7_msgs}${role}=not_included;"
+    fi
+  done
+  if [[ $step7_fail -gt 0 ]]; then
+    FINAL_EXIT=1
+    json_step 7 "fail" "$step7_msgs"
+  elif [[ $step7_match -gt 0 ]]; then
+    json_step 7 "pass" "$step7_msgs"
+  else
+    json_step 7 "skipped" "${step7_msgs:-no payload hashes on predicate}"
+  fi
+fi
+
+# ---------- Verdict ----------
+emit_trace ""
+if [[ $JSON_MODE -eq 1 ]]; then
+  # Join collected step records into a JSON array.
+  printf '{"exit_code":%d,"zip":%s,"trust_anchor":%s,"steps":[%s]}\n' \
+    "$FINAL_EXIT" \
+    "$(printf '%s' "$ZIP" | jq -R -s '.')" \
+    "$(printf '%s' "$TRUST_ANCHOR" | jq -R -s '.')" \
+    "$(IFS=,; echo "${JSON_STEPS[*]}")"
+else
+  case $FINAL_EXIT in
+    0) emit_trace "VERIFY: PASS (strict, anchored)" ;;
+    1) emit_trace "VERIFY: FAIL" ;;
+    2) emit_trace "VERIFY: UNANCHORED PASS (exit 2 — NOT evidentiary-grade)" ;;
+  esac
+fi
+
+exit "$FINAL_EXIT"

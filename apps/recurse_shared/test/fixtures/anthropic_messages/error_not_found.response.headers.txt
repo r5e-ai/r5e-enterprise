@@ -1,0 +1,17 @@
+HTTP/1.1 404 Not Found
+Date: Wed, 02 Sep 2026 17:43:52 GMT
+Content-Type: application/json
+Transfer-Encoding: chunked
+Connection: keep-alive
+x-should-retry: false
+request-id: req_011Cef2Yvn433FxwxBRdVYBz
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+anthropic-organization-id: 00000000-0000-0000-0000-000000000000
+anthropic-workspace-id: wrkspc_REDACTED
+traceresponse: 00-5ca6fa734f336b2d4f53798df504b2d2-7eaa2cc59f1527da-01
+Server: cloudflare
+vary: Accept-Encoding
+Content-Security-Policy: default-src 'none'; frame-ancestors 'none'
+cf-cache-status: DYNAMIC
+X-Robots-Tag: none
+CF-RAY: a34e51c7cd38308f-SEA

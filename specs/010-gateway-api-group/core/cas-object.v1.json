@@ -1,0 +1,47 @@
+{
+  "group": "core.r5e.io",
+  "kind": "CasObject",
+  "version": "v1",
+  "substrate": "event",
+  "naming": {
+    "mode": "content"
+  },
+  "description": "Raw bytes entering the CAS. PUT /cas is an admission of this Kind: the kernel hashes the body, builds this spec, runs the pipeline, and writes the bytes only as the admit step of a granted admission. The payload never carries the bytes.",
+  "schema": {
+    "required": [
+      "address",
+      "size",
+      "class"
+    ],
+    "properties": {
+      "address": {
+        "type": "string",
+        "pattern": "bytes:sha256:[0-9a-f]{64}"
+      },
+      "size": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "class": {
+        "type": "string",
+        "enum": [
+          "raw"
+        ]
+      },
+      "mediaType": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  },
+  "epistemicScope": {
+    "claims": [
+      "the recorded actor stored bytes of this size at this content address at the recorded position on the chain"
+    ],
+    "doesNotClaim": [
+      "anything about the bytes' meaning, origin, or media type beyond the recorded label",
+      "that the recorded actor held the key whose fingerprint is recorded — admissions are not yet signed by their actors"
+    ]
+  },
+  "predicates": []
+}

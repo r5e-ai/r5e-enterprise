@@ -1,0 +1,72 @@
+{
+  "_comment": "Worked attestation example — principal.kind = autonomous (agent acting as itself, no human or service-account principal). Three siblings at each verification_level. dsseEnvelope is identical across siblings; only the outer container advances. See ./README.md.",
+  "signed": {
+    "mediaType": "application/vnd.recurse.attestation+json;version=1.0",
+    "dsseEnvelope": {
+      "payloadType": "application/vnd.in-toto+json",
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJzdWJqZWN0IjpbeyJuYW1lIjoidG9vbF9jYWxsLnNlbGYucGF0cm9sX2hlYWx0aGNoZWNrIiwiZGlnZXN0Ijp7InNoYTI1NiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWYifX1dLCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9yZWN1cnNlLmFpL2F0dGVzdGF0aW9uL3YxIiwicHJlZGljYXRlIjp7ImVudmVsb3BlX3ZlcnNpb24iOiIxLjAiLCJydW5faWQiOiIwMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAzIiwic3RlcF9pZCI6IjAxSFFYWjlSWEtTVEVQMDAwMDAwMDAzMDEiLCJ0dXJuX2lkIjpudWxsLCJzZXNzaW9uX2lkIjoiMDFIUVhaOVJYS1NFU1MwMDAwMDAwMDAwMDMiLCJzZXNzaW9uX2NoYWluX3Bvc2l0aW9uIjo3LCJ0ZW5hbnRfaWQiOiIwMUhRWFo5UlhLMDAwMDAwMDAwMDAwMFQwMSIsImV2ZW50X2tpbmQiOiJ0b29sX2NhbGwiLCJ0aW1lc3RhbXAiOiIyMDI2LTA0LTIyVDA5OjEzOjA1LjY3OFoiLCJtYWNoaW5lX2lkZW50aXR5Ijp7InNwaWZmZV9pZCI6InNwaWZmZTovL3RlbmFudC0wMDEucmVjdXJzZS5haS9hZ2VudC9wYXRyb2wifSwicHJpbmNpcGFsIjp7ImtpbmQiOiJhdXRvbm9tb3VzIiwic2NoZW1hX3ZlcnNpb24iOiIxLjAiLCJzcGlmZmVfaWQiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvYWdlbnQvcGF0cm9sIn0sInBvbGljeV9jYW5vbmljYWxfaGFzaCI6InNoYTI1Njo0NGVhNjY2YTJjOTUzNTA1YjE5YjJmMTk3ZDkxMjhmOWM0OTE0MTQ5Y2Q3YTk0ZjZkYjA2ODMzMTcxY2I1NTQyIiwicGF5bG9hZF9oYXNoIjoic2hhMjU2OmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWYiLCJwYXlsb2FkX3VyaSI6InMzOi8vY3VzdG9tZXItcGF5bG9hZHMvcnVucy8wMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAzL3N0ZXAtMzAxLmpzb24iLCJjb3JyZWxhdGlvbl9pZCI6IjAxSFFYWjlSWEtDT1JSMDAwMDAwMDAwMDAzIiwic2lnbmVyIjoic3BpZmZlOi8vdGVuYW50LTAwMS5yZWN1cnNlLmFpL2dhdGV3YXkvZy0wMSJ9fQ==",
+      "signatures": [
+        {
+          "keyid": "rec-signing-2026q2:v3",
+          "sig": "MEYCIQDmockSignatureBytesAutonomousExampleAAAAAAAAAAAAAAAAAAAIgDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+        }
+      ]
+    },
+    "outer": {
+      "verification_level": "signed",
+      "tier_completeness_advisory": "complete",
+      "session_chain_epoch": 0,
+      "session_chain_root": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "inclusion_proof_local": null,
+      "inclusion_proof_global": null,
+      "commit_retry_exhausted": false,
+      "session_state": "active"
+    }
+  },
+  "local_inclusion_verified": {
+    "mediaType": "application/vnd.recurse.attestation+json;version=1.0",
+    "dsseEnvelope": {
+      "payloadType": "application/vnd.in-toto+json",
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJzdWJqZWN0IjpbeyJuYW1lIjoidG9vbF9jYWxsLnNlbGYucGF0cm9sX2hlYWx0aGNoZWNrIiwiZGlnZXN0Ijp7InNoYTI1NiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWYifX1dLCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9yZWN1cnNlLmFpL2F0dGVzdGF0aW9uL3YxIiwicHJlZGljYXRlIjp7ImVudmVsb3BlX3ZlcnNpb24iOiIxLjAiLCJydW5faWQiOiIwMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAzIiwic3RlcF9pZCI6IjAxSFFYWjlSWEtTVEVQMDAwMDAwMDAzMDEiLCJ0dXJuX2lkIjpudWxsLCJzZXNzaW9uX2lkIjoiMDFIUVhaOVJYS1NFU1MwMDAwMDAwMDAwMDMiLCJzZXNzaW9uX2NoYWluX3Bvc2l0aW9uIjo3LCJ0ZW5hbnRfaWQiOiIwMUhRWFo5UlhLMDAwMDAwMDAwMDAwMFQwMSIsImV2ZW50X2tpbmQiOiJ0b29sX2NhbGwiLCJ0aW1lc3RhbXAiOiIyMDI2LTA0LTIyVDA5OjEzOjA1LjY3OFoiLCJtYWNoaW5lX2lkZW50aXR5Ijp7InNwaWZmZV9pZCI6InNwaWZmZTovL3RlbmFudC0wMDEucmVjdXJzZS5haS9hZ2VudC9wYXRyb2wifSwicHJpbmNpcGFsIjp7ImtpbmQiOiJhdXRvbm9tb3VzIiwic2NoZW1hX3ZlcnNpb24iOiIxLjAiLCJzcGlmZmVfaWQiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvYWdlbnQvcGF0cm9sIn0sInBvbGljeV9jYW5vbmljYWxfaGFzaCI6InNoYTI1Njo0NGVhNjY2YTJjOTUzNTA1YjE5YjJmMTk3ZDkxMjhmOWM0OTE0MTQ5Y2Q3YTk0ZjZkYjA2ODMzMTcxY2I1NTQyIiwicGF5bG9hZF9oYXNoIjoic2hhMjU2OmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWYiLCJwYXlsb2FkX3VyaSI6InMzOi8vY3VzdG9tZXItcGF5bG9hZHMvcnVucy8wMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAzL3N0ZXAtMzAxLmpzb24iLCJjb3JyZWxhdGlvbl9pZCI6IjAxSFFYWjlSWEtDT1JSMDAwMDAwMDAwMDAzIiwic2lnbmVyIjoic3BpZmZlOi8vdGVuYW50LTAwMS5yZWN1cnNlLmFpL2dhdGV3YXkvZy0wMSJ9fQ==",
+      "signatures": [
+        {
+          "keyid": "rec-signing-2026q2:v3",
+          "sig": "MEYCIQDmockSignatureBytesAutonomousExampleAAAAAAAAAAAAAAAAAAAIgDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+        }
+      ]
+    },
+    "outer": {
+      "verification_level": "local_inclusion_verified",
+      "tier_completeness_advisory": "complete",
+      "session_chain_epoch": 0,
+      "session_chain_root": "sha256:9f3c0b8aa1c6b4a5bde8e9b77f72e8b1c0d4a2f5e7d3b9a6c8d1e2f3a4b5c6d7",
+      "inclusion_proof_local": "AAECAwBLAAABc2Vzc2lvbi1sb2NhbC1pbmNsdXNpb24tcHJvb2YtUkZDOTE2Mi10cmFuc2l0ZW0tYXV0b25vbW91cy1leGFtcGxlLXByb29mLWJ5dGVzLTEyMzQ1Njc4OTAA==",
+      "inclusion_proof_global": null,
+      "commit_retry_exhausted": false,
+      "session_state": "active"
+    }
+  },
+  "global_inclusion_verified": {
+    "mediaType": "application/vnd.recurse.attestation+json;version=1.0",
+    "dsseEnvelope": {
+      "payloadType": "application/vnd.in-toto+json",
+      "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJzdWJqZWN0IjpbeyJuYW1lIjoidG9vbF9jYWxsLnNlbGYucGF0cm9sX2hlYWx0aGNoZWNrIiwiZGlnZXN0Ijp7InNoYTI1NiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWYifX1dLCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9yZWN1cnNlLmFpL2F0dGVzdGF0aW9uL3YxIiwicHJlZGljYXRlIjp7ImVudmVsb3BlX3ZlcnNpb24iOiIxLjAiLCJydW5faWQiOiIwMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAzIiwic3RlcF9pZCI6IjAxSFFYWjlSWEtTVEVQMDAwMDAwMDAzMDEiLCJ0dXJuX2lkIjpudWxsLCJzZXNzaW9uX2lkIjoiMDFIUVhaOVJYS1NFU1MwMDAwMDAwMDAwMDMiLCJzZXNzaW9uX2NoYWluX3Bvc2l0aW9uIjo3LCJ0ZW5hbnRfaWQiOiIwMUhRWFo5UlhLMDAwMDAwMDAwMDAwMFQwMSIsImV2ZW50X2tpbmQiOiJ0b29sX2NhbGwiLCJ0aW1lc3RhbXAiOiIyMDI2LTA0LTIyVDA5OjEzOjA1LjY3OFoiLCJtYWNoaW5lX2lkZW50aXR5Ijp7InNwaWZmZV9pZCI6InNwaWZmZTovL3RlbmFudC0wMDEucmVjdXJzZS5haS9hZ2VudC9wYXRyb2wifSwicHJpbmNpcGFsIjp7ImtpbmQiOiJhdXRvbm9tb3VzIiwic2NoZW1hX3ZlcnNpb24iOiIxLjAiLCJzcGlmZmVfaWQiOiJzcGlmZmU6Ly90ZW5hbnQtMDAxLnJlY3Vyc2UuYWkvYWdlbnQvcGF0cm9sIn0sInBvbGljeV9jYW5vbmljYWxfaGFzaCI6InNoYTI1Njo0NGVhNjY2YTJjOTUzNTA1YjE5YjJmMTk3ZDkxMjhmOWM0OTE0MTQ5Y2Q3YTk0ZjZkYjA2ODMzMTcxY2I1NTQyIiwicGF5bG9hZF9oYXNoIjoic2hhMjU2OmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWYiLCJwYXlsb2FkX3VyaSI6InMzOi8vY3VzdG9tZXItcGF5bG9hZHMvcnVucy8wMUhRWFo5UlhLUlVOMDAwMDAwMDBSVTAzL3N0ZXAtMzAxLmpzb24iLCJjb3JyZWxhdGlvbl9pZCI6IjAxSFFYWjlSWEtDT1JSMDAwMDAwMDAwMDAzIiwic2lnbmVyIjoic3BpZmZlOi8vdGVuYW50LTAwMS5yZWN1cnNlLmFpL2dhdGV3YXkvZy0wMSJ9fQ==",
+      "signatures": [
+        {
+          "keyid": "rec-signing-2026q2:v3",
+          "sig": "MEYCIQDmockSignatureBytesAutonomousExampleAAAAAAAAAAAAAAAAAAAIgDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+        }
+      ]
+    },
+    "outer": {
+      "verification_level": "global_inclusion_verified",
+      "tier_completeness_advisory": "complete",
+      "session_chain_epoch": 0,
+      "session_chain_root": "sha256:9f3c0b8aa1c6b4a5bde8e9b77f72e8b1c0d4a2f5e7d3b9a6c8d1e2f3a4b5c6d7",
+      "inclusion_proof_local": "AAECAwBLAAABc2Vzc2lvbi1sb2NhbC1pbmNsdXNpb24tcHJvb2YtUkZDOTE2Mi10cmFuc2l0ZW0tYXV0b25vbW91cy1leGFtcGxlLXByb29mLWJ5dGVzLTEyMzQ1Njc4OTAA==",
+      "inclusion_proof_global": "AAECAwBNAAABZ2xvYmFsLWxlZGdlci1pbmNsdXNpb24tcHJvb2YtUkZDOTE2Mi10cmFuc2l0ZW0tZXBvY2gtcm9vdC1hdXRvbm9tb3VzLXByb29mLTEyMzQ1AB==",
+      "commit_retry_exhausted": false,
+      "session_state": "committed"
+    }
+  }
+}

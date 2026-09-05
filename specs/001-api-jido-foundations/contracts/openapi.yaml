@@ -1,0 +1,2080 @@
+openapi: 3.1.0
+
+info:
+  title: Recurse Enterprise API (v1)
+  version: 1.0.0
+  description: |
+    Canonical API surface for Recurse Enterprise Phase 1. This file is the authoritative
+    reference for every public v1.0 endpoint across the four API Planes — Data, Control,
+    Governance, Audit — per FR-001 / FR-002.
+
+    Phase-1 ships two deployment shapes as first-class commercial offerings
+    (Managed SaaS on AWS EKS, Standalone AI Gateway on-prem) plus VPC Runner as
+    contract-preview and Air-Gapped Appliance as Phase-2 scaffold. Each endpoint
+    declares its tier applicability via the `x-recurse-tiers` extension; clients
+    calling an inactive endpoint receive HTTP 501 `ERR_TIER_MISMATCH` per FR-024.
+
+    **Error envelopes** — Control / Governance / Audit Planes return the Recurse
+    uniform envelope (FR-010). Data Plane NEVER returns the Recurse envelope;
+    all failure categories are protocol-native per FR-016a–f.
+
+    **Identity** — every Gateway call runs in an immutable IdentityContext
+    `(machine_identity, principal, tenant_id, correlation_id)` resolved exactly
+    once at ingress (FR-026). Machine identity per FR-011 / FR-017 / FR-025;
+    principal identity per FR-026 / PrincipalProvider.
+
+    **Vendor extensions** declared on each endpoint:
+      - `x-recurse-tiers` (FR-013)         — subset of [managed_saas, standalone_gateway, vpc_runner, appliance]
+      - `x-recurse-streaming` (FR-012)     — one of sync | sse | ws
+      - `x-recurse-rate-limit-class` (FR-023) — one of data_plane | control | audit
+      - `x-recurse-owner` (FR-035)         — one of gateway | runtime | gateway-with-runtime-delegation
+      - `x-recurse-idempotency-key` (FR-028) — one of required | exempt | not-applicable
+      - `x-recurse-plane`                  — one of data | control | governance | audit
+      - `x-recurse-error-envelope`         — one of recurse | protocol_native
+      - `x-recurse-fr-refs`                — list of FR IDs anchoring this endpoint
+
+servers:
+  - url: https://{deployment}/v1
+    variables:
+      deployment:
+        default: api.example.com
+        description: |
+          Per-deployment hostname. Managed SaaS uses *.recurse.ai; Standalone is
+          customer-hosted; observability endpoints (/healthz, /readyz, /metrics)
+          are served at the deployment root (NOT under /v1) per FR-014.
+
+tags:
+  - name: Data Plane
+    description: |
+      Agent-facing protocol MITM: OpenAI-compatible LLM traffic + MCP SSE to
+      Recurse-managed MCP servers (FR-043). Per-turn attestation per FR-041.
+      Errors are protocol-native (FR-016) — never the Recurse envelope.
+  - name: Control Plane
+    description: |
+      Orchestration lifecycle, observability, version metadata. Spawn / cancel /
+      list managed-agent containers; static /version; /healthz /readyz /metrics
+      at the deployment root. Error envelope is Recurse uniform (FR-010).
+  - name: Governance Plane
+    description: |
+      Policy authoring (Cedar Playground per FR-049 surface 1), Discovery-to-Policy
+      generation (FR-049 surface 2), Blast-Radius simulation (FR-049 surface 3),
+      and Cedar policy bundle distribution (FR-039). Error envelope is Recurse
+      uniform (FR-010).
+  - name: Audit Plane
+    description: |
+      Receipt query / attestation envelope retrieval (FR-022), detached-payload
+      broker (FR-030), SIEM log forwarder administration (FR-048 surface 1), and
+      Export-Evidence zip builder (FR-048 surface 2). Error envelope is Recurse
+      uniform (FR-010).
+  - name: Observability
+    description: |
+      Liveness, readiness, and Prometheus metrics per FR-014 / FR-032. Served at
+      the deployment root (NOT under /v1). `/healthz` and `/readyz` are
+      unauthenticated; `/metrics` is guarded by a scrape-credential bearer.
+
+paths:
+
+  # =================================================================
+  # OBSERVABILITY (root-mounted; FR-014 / FR-032)
+  # =================================================================
+  /healthz:
+    servers:
+      - url: https://{deployment}
+        variables:
+          deployment:
+            default: api.example.com
+    get:
+      tags: [Observability]
+      summary: Liveness probe
+      description: |
+        Per FR-014 / FR-032. Unauthenticated; coarse status only; safe for LB
+        probes. HTTP 200 for `ok` or `degraded`; HTTP 503 for `down`.
+      security: []
+      x-recurse-plane: control
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: protocol_native
+      x-recurse-fr-refs: [FR-014, FR-032]
+      responses:
+        '200':
+          description: Service is up (ok) or operating in a degraded mode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: Service is down
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /readyz:
+    servers:
+      - url: https://{deployment}
+        variables:
+          deployment:
+            default: api.example.com
+    get:
+      tags: [Observability]
+      summary: Readiness probe
+      description: |
+        Per FR-014 / FR-032. Unauthenticated; returns 200 with `ready: true` once
+        the Gateway (and Runtime, in Governance shapes) has loaded Tier
+        Configuration, established ledger/storage/secrets provider handles, and
+        is accepting traffic.
+      security: []
+      x-recurse-plane: control
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: protocol_native
+      x-recurse-fr-refs: [FR-014, FR-032]
+      responses:
+        '200':
+          description: Ready to serve traffic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyStatus'
+        '503':
+          description: Not yet ready (startup in progress or Provider Interface handle absent)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyStatus'
+
+  /metrics:
+    servers:
+      - url: https://{deployment}
+        variables:
+          deployment:
+            default: api.example.com
+    get:
+      tags: [Observability]
+      summary: Prometheus text exposition
+      description: |
+        Per FR-014 / FR-032. Requires a scrape-credential bearer token.
+        Metric naming: `recurse_<subsystem>_<noun>_<unit>`. Content-Type is
+        `text/plain; version=0.0.4` per OpenMetrics/Prometheus exposition format.
+      security:
+        - metricsBearer: []
+      x-recurse-plane: control
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: protocol_native
+      x-recurse-fr-refs: [FR-014, FR-032]
+      responses:
+        '200':
+          description: Prometheus text exposition
+          content:
+            text/plain; version=0.0.4:
+              schema:
+                type: string
+                example: |
+                  # HELP recurse_gateway_request_total Gateway request count by plane
+                  # TYPE recurse_gateway_request_total counter
+                  recurse_gateway_request_total{plane="data"} 4217
+                  recurse_gateway_request_total{plane="control"} 33
+        '401':
+          description: Missing or invalid scrape credential
+
+  # =================================================================
+  # DATA PLANE — OpenAI-compatible + MCP (FR-016, FR-025, FR-041, FR-043)
+  # =================================================================
+  /v1/chat/completions:
+    post:
+      tags: [Data Plane]
+      summary: OpenAI-compatible chat completions (sync + SSE)
+      description: |
+        Per FR-041. Per-turn attestation emitted at the end of the sync response
+        or the end of the SSE stream. Inbound auth is mTLS via netns + SPIFFE
+        peer cert (Governance shapes per FR-025) OR `X-Observed-Identity` JWT
+        (Standalone Gateway per FR-017). Errors are protocol-native per FR-016:
+          - Policy `deny` (FR-016a) — OpenAI synthetic assistant/tool-role message
+            carrying `policy_canonical_hash`; HTTP 200 (the protocol-level "soft"
+            denial shape).
+          - Upstream 5xx (FR-016b) — pass-through with `x-recurse-correlation-id`.
+          - Malformed request (FR-016c) — OpenAI validation-error shape; HTTP 400.
+          - Auth failure (FR-016d) — HTTP 401 protocol-native; no Recurse internals.
+          - Rate limit (FR-016e) — HTTP 429 protocol-native with `Retry-After`.
+          - SSE mid-stream policy flip (FR-016f) — terminal denial frame, clean close,
+            `completed_with_denial` event recorded in session chain.
+      security:
+        - spiffeMTLS: []
+        - observedIdentityJwt: []
+      x-recurse-plane: data
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner]
+      x-recurse-streaming: sse
+      x-recurse-rate-limit-class: data_plane
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: exempt
+      x-recurse-error-envelope: protocol_native
+      x-recurse-fr-refs: [FR-016a, FR-016b, FR-016c, FR-016d, FR-016e, FR-016f, FR-025, FR-041, FR-043]
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenAIChatCompletionRequest'
+            examples:
+              sync_governance:
+                summary: Sync request, Governance shape (mTLS inbound)
+                value:
+                  model: gpt-4o
+                  messages:
+                    - role: user
+                      content: "Summarize Q3 sales."
+                  stream: false
+              sse_standalone:
+                summary: SSE request, Standalone Gateway shape (X-Observed-Identity inbound)
+                value:
+                  model: gpt-4o
+                  messages:
+                    - role: user
+                      content: "Summarize Q3 sales."
+                  stream: true
+      responses:
+        '200':
+          description: OK (sync JSON or SSE stream when stream=true)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenAIChatCompletionResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream of OpenAI-compatible delta chunks; terminal frame carries `completed` or `completed_with_denial`.
+        '400':
+          description: Malformed request — protocol-native (FR-016c)
+        '401':
+          description: Auth failure — protocol-native (FR-016d)
+        '429':
+          description: Rate limit — protocol-native (FR-016e)
+        '502':
+          description: Upstream LLM 5xx pass-through (FR-016b)
+
+  /v1/embeddings:
+    post:
+      tags: [Data Plane]
+      summary: OpenAI-compatible embeddings
+      description: |
+        Per FR-025 / FR-041. Sync only. Per-call attestation at response. Errors
+        are protocol-native per FR-016; no Recurse envelope.
+      security:
+        - spiffeMTLS: []
+        - observedIdentityJwt: []
+      x-recurse-plane: data
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: data_plane
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: exempt
+      x-recurse-error-envelope: protocol_native
+      x-recurse-fr-refs: [FR-016, FR-025, FR-041, FR-043]
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenAIEmbeddingsRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenAIEmbeddingsResponse'
+        '400':
+          description: Malformed request — protocol-native (FR-016c)
+        '401':
+          description: Auth failure — protocol-native (FR-016d)
+        '429':
+          description: Rate limit — protocol-native (FR-016e)
+        '502':
+          description: Upstream 5xx pass-through (FR-016b)
+
+  /v1/models:
+    get:
+      tags: [Data Plane]
+      summary: OpenAI-compatible model listing
+      description: |
+        Returns the set of LLM models the configured LLMProvider(s) expose for
+        this deployment. Honors tier-scoped visibility. Errors are
+        protocol-native per FR-016.
+      security:
+        - spiffeMTLS: []
+        - observedIdentityJwt: []
+      x-recurse-plane: data
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: data_plane
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: protocol_native
+      x-recurse-fr-refs: [FR-016, FR-025]
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: List of available models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenAIModelList'
+        '401':
+          description: Auth failure — protocol-native (FR-016d)
+
+  /v1/mcp/{server_name}/sse:
+    get:
+      tags: [Data Plane]
+      summary: MCP Server-Sent Events stream (per FR-043 — Recurse-managed MCP servers)
+      description: |
+        Per FR-043 / FR-041. The agent connects to a Recurse-managed MCP server
+        via SSE. Tool calls traverse Gateway → MCP server; MCP server →
+        downstream service uses RFC 8693 token exchange per FR-047 (Gateway
+        mints the OBO token, agent never holds downstream credentials).
+        Per-tool-call attestation emitted on completion. Errors are
+        protocol-native MCP error frames per FR-016.
+      security:
+        - spiffeMTLS: []
+        - observedIdentityJwt: []
+      x-recurse-plane: data
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner]
+      x-recurse-streaming: sse
+      x-recurse-rate-limit-class: data_plane
+      x-recurse-owner: gateway-with-runtime-delegation
+      x-recurse-idempotency-key: exempt
+      x-recurse-error-envelope: protocol_native
+      x-recurse-fr-refs: [FR-016a, FR-016f, FR-025, FR-041, FR-043, FR-047]
+      parameters:
+        - in: path
+          name: server_name
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z][a-z0-9_-]{0,63}$'
+          description: Logical name of the Recurse-managed MCP server (e.g., `jira`, `snowflake`)
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: SSE stream of MCP protocol frames
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: MCP-protocol SSE frames; terminal frame on cancellation / denial.
+        '401':
+          description: Auth failure — protocol-native (FR-016d)
+        '404':
+          description: Unknown MCP server name — protocol-native error frame
+
+  /v1/mcp/{server_name}/messages:
+    post:
+      tags: [Data Plane]
+      summary: MCP client-to-server message channel
+      description: |
+        MCP's client-to-server message channel complement to the SSE endpoint.
+        Per FR-043 / FR-041. Errors protocol-native per FR-016.
+      security:
+        - spiffeMTLS: []
+        - observedIdentityJwt: []
+      x-recurse-plane: data
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: data_plane
+      x-recurse-owner: gateway-with-runtime-delegation
+      x-recurse-idempotency-key: exempt
+      x-recurse-error-envelope: protocol_native
+      x-recurse-fr-refs: [FR-016, FR-025, FR-041, FR-043]
+      parameters:
+        - in: path
+          name: server_name
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPMessage'
+      responses:
+        '202':
+          description: Accepted for delivery on the associated SSE channel
+        '400':
+          description: Malformed message — protocol-native (FR-016c)
+        '401':
+          description: Auth failure — protocol-native (FR-016d)
+        '429':
+          description: Rate limit — protocol-native (FR-016e)
+
+  # =================================================================
+  # CONTROL PLANE — orchestrator lifecycle + version metadata
+  # =================================================================
+  /v1/orchestrator/spawn:
+    post:
+      tags: [Control Plane]
+      summary: Spawn a managed agent container (BYOC)
+      description: |
+        Per FR-002 / FR-013 shipping matrix. Runtime-owned endpoint, served by
+        the Gateway and delegated to the Runtime via intra-node message.
+        Active in Governance shapes (managed_saas, vpc_runner, appliance).
+        Returns HTTP 501 `ERR_TIER_MISMATCH` in standalone_gateway per FR-024
+        (Runtime is absent). `Idempotency-Key` header is REQUIRED per FR-028.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: control
+      x-recurse-tiers: [managed_saas, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway-with-runtime-delegation
+      x-recurse-idempotency-key: required
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-002, FR-011, FR-013, FR-024, FR-026, FR-028]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpawnRequest'
+            examples:
+              managed_saas_byoc:
+                summary: Managed SaaS, BYOC container image
+                value:
+                  execution_mode: byoc
+                  image: "ghcr.io/customer/agent:abc123"
+                  identity:
+                    obo_user_id: "01HXYZABC0000000000000000A"
+                  runtime_constraints:
+                    network_mode: strict_egress_proxy
+                    budget_usd: 25.00
+                  policy_bindings:
+                    - "oci://registry.recurse.ai/policies/hr-bot@sha256:aaaa..."
+              standalone_not_applicable:
+                summary: Standalone Gateway — endpoint returns 501
+                description: |
+                  In the `standalone_gateway` tier Runtime is absent, so /orchestrator/*
+                  returns 501 `ERR_TIER_MISMATCH` with
+                  `{active_tier: "standalone_gateway", endpoint_requires_tier: ["managed_saas", "vpc_runner", "appliance"]}`.
+                value:
+                  execution_mode: byoc
+                  image: "ghcr.io/customer/agent:abc123"
+                  identity: { obo_user_id: "01HXYZABC0000000000000000A" }
+                  runtime_constraints: { network_mode: strict_egress_proxy }
+                  policy_bindings: []
+      responses:
+        '202':
+          description: Spawn accepted; agent container provisioning
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpawnResponse'
+        '400':
+          $ref: '#/components/responses/RecurseError'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+        '429':
+          $ref: '#/components/responses/RecurseError'
+        '500':
+          $ref: '#/components/responses/RecurseError'
+        '501':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/orchestrator/sessions:
+    get:
+      tags: [Control Plane]
+      summary: List managed-agent sessions
+      description: |
+        Cursor-paginated listing of sessions the Runtime owns. Filters accept
+        `session_state`, `run_id`, `tenant_id`, time window (per FR-022).
+        Returns 501 `ERR_TIER_MISMATCH` in standalone_gateway tier.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: control
+      x-recurse-tiers: [managed_saas, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: runtime
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-022, FR-024, FR-036, FR-044]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/XCorrelationId'
+        - in: query
+          name: session_state
+          schema:
+            type: string
+            enum:
+              - active
+              - interim_committed
+              - commit_retry
+              - commit_retry_exhausted
+              - aborted
+              - cancelled
+              - committed
+      responses:
+        '200':
+          description: Paginated session list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '501':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/orchestrator/sessions/{session_id}/cancel:
+    post:
+      tags: [Control Plane]
+      summary: Cancel an in-flight managed-agent session
+      description: |
+        Graceful cancel per FR-029 — the Runtime transitions the session to
+        `cancelled` (FR-044), in-flight Data Plane SSE streams emit terminal
+        `cancellation` frames, and the final epoch commits. `Idempotency-Key`
+        is REQUIRED (replayed cancel on an already-cancelled session is a no-op).
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: control
+      x-recurse-tiers: [managed_saas, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: runtime
+      x-recurse-idempotency-key: required
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-024, FR-029, FR-044]
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '202':
+          description: Cancellation accepted; terminal frames will flush
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancellationAck'
+        '400':
+          $ref: '#/components/responses/RecurseError'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '404':
+          $ref: '#/components/responses/RecurseError'
+        '501':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/version:
+    get:
+      tags: [Control Plane]
+      summary: Static deployment version metadata
+      description: |
+        Per FR-005 — the only metadata endpoint allowed by v1.0. Returns static
+        information built into the binary. Unauthenticated.
+      security: []
+      x-recurse-plane: control
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-005, FR-006]
+      responses:
+        '200':
+          description: Deployment version metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionResponse'
+
+  # =================================================================
+  # GOVERNANCE PLANE — policy bundle distribution (FR-039) + policy-
+  # author surfaces (FR-049: simulate, propose-from-event, blast-radius,
+  # landed below). Task T085 is closed.
+  # =================================================================
+  /v1/governance/policy/bundle:
+    post:
+      tags: [Governance Plane]
+      summary: Upload a Cedar policy bundle (OCI-Artifact-backed distribution)
+      description: |
+        Per FR-039. Accepts a content-addressable Cedar policy bundle; the
+        PolicyProvider stores it in an OCI registry (online path) or accepts
+        a signed manifest (air-gapped per FR-052). Response includes the
+        `policy_bundle_digest` used to reference this bundle in receipts'
+        `policy_canonical_hash` and in /v1/orchestrator/spawn `policy_bindings`.
+        `Idempotency-Key` is REQUIRED (upload is a create-or-no-op keyed on
+        both the digest and the idempotency key).
+      security:
+        - bearerSpiffeSvid: []
+        - spiffeMTLS: []
+      x-recurse-plane: governance
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: required
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-002, FR-025, FR-039, FR-052]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/vnd.cedar.policy.v1+tar:
+            schema:
+              type: string
+              format: binary
+              description: Cedar bundle — OCI artifact media type `application/vnd.cedar.policy.v1`
+      responses:
+        '201':
+          description: Bundle accepted; digest assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyBundleUploadResponse'
+        '400':
+          $ref: '#/components/responses/RecurseError'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+        '413':
+          $ref: '#/components/responses/RecurseError'
+        '500':
+          $ref: '#/components/responses/RecurseError'
+    get:
+      tags: [Governance Plane]
+      summary: List known Cedar policy bundles
+      description: |
+        Cursor-paginated listing of policy bundles the PolicyProvider knows
+        about. Returned records include `policy_bundle_digest`, upload time,
+        and supersede chain metadata.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: governance
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-022, FR-039]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Paginated bundle list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyBundleList'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/governance/policy/{policy_bundle_digest}:
+    get:
+      tags: [Governance Plane]
+      summary: Retrieve a specific Cedar policy bundle by digest
+      description: |
+        Content-addressable fetch. `policy_bundle_digest` is the OCI digest
+        (`sha256:...`). Used by auditors to resolve a receipt's
+        `policy_canonical_hash` back to its originating bundle material.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: governance
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-022, FR-039]
+      parameters:
+        - in: path
+          name: policy_bundle_digest
+          required: true
+          schema:
+            type: string
+            pattern: '^sha256:[0-9a-f]{64}$'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Cedar bundle (OCI artifact)
+          content:
+            application/vnd.cedar.policy.v1+tar:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '404':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/governance/policy/simulate:
+    post:
+      tags: [Governance Plane]
+      summary: Cedar Playground — sub-millisecond ALLOW/DENY simulation (FR-049 surface 1)
+      description: |
+        Server-side endpoint backing the split-pane Cedar Playground UI
+        (Deliverable P). Accepts a Cedar policy source and a mock request;
+        returns the Cedar evaluator's decision, matched rules, and evaluation
+        time. Stateless — no policy is persisted, no attestation emitted.
+
+        Backing implementation: `PolicyProvider.simulate/3` which delegates to
+        the Cedar NIF (research D3). Syntax errors on the `policy_text` surface
+        inline in the response body for the Playground's editor to render.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: governance
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-039, FR-049]
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicySimulateRequest'
+            examples:
+              allowSimpleChat:
+                summary: Simple ALLOW for gpt-4o chat by alice
+                value:
+                  policy_text: |
+                    permit(principal, action == Action::"chat", resource);
+                  mock_request:
+                    principal: { type: "User", id: "alice" }
+                    action: { type: "Action", id: "chat" }
+                    resource: { type: "Model", id: "gpt-4o" }
+                    context: {}
+      responses:
+        '200':
+          description: Evaluation complete; decision returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicySimulateResponse'
+        '400':
+          description: Cedar syntax error; inline error payload for editor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicySimulateSyntaxError'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/governance/policy/propose-from-event:
+    post:
+      tags: [Governance Plane]
+      summary: Discovery-to-Policy generator — "Wiz pattern" wedge (FR-049 surface 2)
+      description: |
+        Given a flagged denial event (by `event_id` or inline event body), the
+        system proposes a Cedar policy that would have ALLOWed it, plus
+        scope-tightening suggestions (tenant-scope, principal-group-scope,
+        resource-pattern-scope). The proposed policy auto-populates the
+        Playground editor for review/edit.
+
+        Backing implementation: `PolicyProvider.propose_from_event/2`. No
+        state mutation — returning a proposal does NOT publish the policy;
+        publication is out-of-band per Phase-1 (see US5 HANDOFF note).
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: governance
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-049]
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyProposeFromEventRequest'
+      responses:
+        '200':
+          description: Proposal generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyProposeFromEventResponse'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+        '404':
+          description: event_id not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /v1/governance/policy/blast-radius:
+    post:
+      tags: [Governance Plane]
+      summary: Blast-Radius Simulation — replay historical attestations against a draft (FR-049 surface 3)
+      description: |
+        For a candidate Cedar policy + historical window, the system replays
+        historical attestations against the proposed policy and reports impact
+        (impacted runs, impacted agents, sample divergences). **Read-only** —
+        no state mutation, no attestation emitted for the simulation itself.
+
+        Backing implementation: `PolicyProvider.blast_radius/4`. Phase-1
+        behavior: synchronous-with-deadline; if the deadline elapses, returns
+        `partial: true` and an `estimated_total_runs` so the caller can choose
+        to re-query with a smaller window. Async-with-job-id path is a Phase-2
+        extension (see US5 HANDOFF note 3).
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: governance
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway-with-runtime-delegation
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-022, FR-049]
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyBlastRadiusRequest'
+      responses:
+        '200':
+          description: Simulation complete (possibly partial per deadline)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyBlastRadiusResponse'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+
+  # =================================================================
+  # AUDIT PLANE — receipts, broker, session query (FR-022, FR-030, FR-044)
+  # + audit export + SIEM admin (FR-048 surfaces 1 + 2, landed below).
+  # Task T089 is closed.
+  # =================================================================
+  /v1/audit/receipts:
+    get:
+      tags: [Audit Plane]
+      summary: List attestation receipts with FR-022 filters
+      description: |
+        Cursor-paginated listing with deterministic ordering (timestamp +
+        ledger sequence within session). Filters: `run_id`, `session_id`,
+        `turn_id`, `tenant_id`, time window, `machine_identity`,
+        `principal.kind`, `principal.subject`, `verification_level`,
+        `tier_completeness_advisory`, `policy_canonical_hash`. Returned
+        records carry the latest outer-container state; the signed DSSE
+        payload is stable across re-queries.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: audit
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: audit
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-021, FR-022, FR-030, FR-038]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/XCorrelationId'
+        - in: query
+          name: run_id
+          schema: { type: string }
+        - in: query
+          name: session_id
+          schema: { type: string }
+        - in: query
+          name: turn_id
+          schema: { type: string }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: verification_level
+          schema:
+            type: string
+            enum: [signed, local_inclusion_verified, global_inclusion_verified]
+        - in: query
+          name: tier_completeness_advisory
+          schema:
+            type: string
+            enum: [complete, partial]
+        - in: query
+          name: policy_canonical_hash
+          schema: { type: string, pattern: '^[0-9a-f]{64}$' }
+        - in: query
+          name: principal_kind
+          schema:
+            type: string
+            enum: [obo_human, service_account, autonomous]
+      responses:
+        '200':
+          description: Paginated receipt list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptList'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/audit/receipts/{run_id}/{step_id}:
+    get:
+      tags: [Audit Plane]
+      summary: Retrieve a single attestation receipt
+      description: |
+        Returns the Recurse-native attestation container for a specific event
+        (`run_id` + `step_id`). Includes the signed `dsseEnvelope` and the
+        current outer-container state per FR-021. `verification_level`
+        advances monotonically as commits land.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: audit
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: audit
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-021, FR-022, FR-026, FR-038]
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: step_id
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: OK — attestation container
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationContainer'
+              examples:
+                obo_human:
+                  summary: principal.kind = obo_human (human-on-behalf)
+                  value:
+                    mediaType: "application/vnd.recurse.attestation+json;version=1.0"
+                    dsseEnvelope:
+                      payloadType: "application/vnd.in-toto+json"
+                      payload: "<base64 in-toto statement>"
+                      signatures:
+                        - keyid: "kms-key-7:v3"
+                          sig: "<base64 sig>"
+                    outer:
+                      verification_level: global_inclusion_verified
+                      tier_completeness_advisory: complete
+                      session_chain_epoch: 2
+                      session_chain_root: "sha256:d41d8cd98f00b204e9800998ecf8427e..."
+                      inclusionProof:
+                        local: "<base64 RFC 9162 TransItem>"
+                        global: "<base64 RFC 9162 TransItem>"
+                service_account:
+                  summary: principal.kind = service_account
+                  value:
+                    mediaType: "application/vnd.recurse.attestation+json;version=1.0"
+                    dsseEnvelope:
+                      payloadType: "application/vnd.in-toto+json"
+                      payload: "<base64 in-toto statement>"
+                      signatures:
+                        - keyid: "kms-key-7:v3"
+                          sig: "<base64 sig>"
+                    outer:
+                      verification_level: local_inclusion_verified
+                      tier_completeness_advisory: complete
+                      session_chain_epoch: 0
+                      session_chain_root: "sha256:aaaa..."
+                      inclusionProof:
+                        local: "<base64 RFC 9162 TransItem>"
+                autonomous:
+                  summary: principal.kind = autonomous (machine-as-itself)
+                  value:
+                    mediaType: "application/vnd.recurse.attestation+json;version=1.0"
+                    dsseEnvelope:
+                      payloadType: "application/vnd.in-toto+json"
+                      payload: "<base64 in-toto statement>"
+                      signatures:
+                        - keyid: "kms-key-7:v3"
+                          sig: "<base64 sig>"
+                    outer:
+                      verification_level: signed
+                      tier_completeness_advisory: partial
+                      session_chain_epoch: 0
+                      session_chain_root: null
+                      inclusionProof: null
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '404':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/audit/sessions/{session_id}:
+    get:
+      tags: [Audit Plane]
+      summary: Retrieve session metadata (state machine + epochs)
+      description: |
+        Per FR-036 / FR-037 / FR-044. Returns the session's lifecycle state,
+        ordered epoch list with per-epoch roots, and any
+        `commit_retry_exhausted` flag. Used by auditors to traverse from a
+        receipt's `session_chain_epoch` to the epoch root that anchors its
+        local inclusion proof.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: audit
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: audit
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-022, FR-036, FR-037, FR-044]
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Session metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetail'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '404':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/audit/broker/{payload_uri_hash}:
+    get:
+      tags: [Audit Plane]
+      summary: Audit payload broker — fetch a detached payload
+      description: |
+        Per FR-030. Given a `payload_uri_hash` referenced by a receipt's
+        signed predicate, the broker authorizes via the same Cedar engine
+        that gates every other request (principal must carry an
+        authoritative role claim such as `recurse_role in ["platform_operator","tenant_auditor"]`)
+        and streams the detached payload from customer storage. Never returns
+        payloads outside caller scope.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: audit
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: audit
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-021, FR-030]
+      parameters:
+        - in: path
+          name: payload_uri_hash
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Detached payload bytes (opaque; hash matches the signed receipt's payload_hash)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+        '404':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/audit/export:
+    post:
+      tags: [Audit Plane]
+      summary: Export Evidence zip builder (FR-048 surface 2)
+      description: |
+        Produces a per-`run_id` Evidence Zip independently verifiable offline
+        by a compliance auditor using `sigstore-cli` + the `recurse-verify`
+        wrapper (Deliverable J). The zip layout is fully specified in
+        `export_evidence_zip.md`:
+
+        ```
+        evidence/
+          {run_id}/
+            payload.json
+            attestation.json
+            inclusion_proofs/{local,global}.bin
+            signing_key_archive/{key_id}-v{version}.pem(+.metadata.json)
+            policy_bundle/{bundle_digest}.tar.gz(+.sig for offline-manifest)
+            cedar_engine/{cedar_version,cedar_crate_digest,stability_fixture}
+          manifest.json                (DSSE-signed; lists every file + sha256)
+        ```
+
+        The manifest is DSSE-signed with the Gateway's long-lived signing key
+        (FR-046). Payloads retrieved via the audit broker (FR-030) under
+        Cedar-attributed authorization.
+
+        Per SC-005: the full round-trip target is <5s p95 for typical
+        sessions. Large or multi-run exports MAY exceed this and return a
+        streamed response.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: audit
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: audit
+      x-recurse-owner: gateway-with-runtime-delegation
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-021, FR-030, FR-039, FR-046, FR-048]
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditExportRequest'
+            examples:
+              singleRun:
+                summary: Export a single run_id
+                value:
+                  run_ids: ["run_01H1234567890ABCDEFGHJKMN"]
+              sampleBatch:
+                summary: Auditor's 50-sample batch for annual audit
+                value:
+                  run_ids:
+                    - "run_01H1234567890ABCDEFGHJKMN"
+                    - "run_01H2234567890ABCDEFGHJKMN"
+                    # ... up to 500 run_ids per call
+      responses:
+        '200':
+          description: Evidence zip stream (application/zip)
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '207':
+          description: |
+            Multi-status — some run_ids exported successfully, others failed.
+            Response body lists per-run status; the zip (if any) contains
+            only successful entries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditExportMultiStatus'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+        '404':
+          $ref: '#/components/responses/RecurseError'
+
+  /v1/audit/forward:
+    get:
+      tags: [Audit Plane]
+      summary: SIEM Log Forwarder admin — read current config (FR-048 surface 1)
+      description: |
+        Returns the current SIEM Log Forwarder configuration: output kind
+        (`stdout_ndjson` | `http_push`), HTTP push target (if any), auth
+        kind (none | bearer | splunk_hec | datadog_api_key | sentinel_aad),
+        batching policy, retry policy. Schema fully specified in
+        `siem_log_forwarder.md`.
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: audit
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: not-applicable
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-048]
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Current forwarder config
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiemForwarderConfig'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+    put:
+      tags: [Audit Plane]
+      summary: SIEM Log Forwarder admin — update config
+      description: |
+        Replace the forwarder config. Takes effect on next forwarder-worker
+        heartbeat (bounded by a configurable debounce). Does NOT flush pending
+        events — the existing backlog drains to the NEW target. Admin-only
+        (Cedar-attributed principal).
+      security:
+        - bearerSpiffeSvid: []
+      x-recurse-plane: audit
+      x-recurse-tiers: [managed_saas, standalone_gateway, vpc_runner, appliance]
+      x-recurse-streaming: sync
+      x-recurse-rate-limit-class: control
+      x-recurse-owner: gateway
+      x-recurse-idempotency-key: required
+      x-recurse-error-envelope: recurse
+      x-recurse-fr-refs: [FR-048]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiemForwarderConfig'
+      responses:
+        '200':
+          description: Config updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiemForwarderConfig'
+        '400':
+          $ref: '#/components/responses/RecurseError'
+        '401':
+          $ref: '#/components/responses/RecurseError'
+        '403':
+          $ref: '#/components/responses/RecurseError'
+
+components:
+  parameters:
+    XCorrelationId:
+      in: header
+      name: X-Correlation-ID
+      required: false
+      schema:
+        type: string
+        pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+      description: FR-018 — ULID correlation ID; generated by the Gateway if absent.
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+      description: |
+        FR-028 — client-supplied ULID; deduplication retention 24h. Required on
+        mutating POSTs on Control / Governance / Audit Planes. Absent or
+        invalid is rejected with `ERR_VALIDATION`. Data Plane endpoints are
+        explicitly EXEMPT.
+    Cursor:
+      in: query
+      name: cursor
+      required: false
+      schema:
+        type: string
+      description: Opaque cursor for pagination; carry forward value from previous response `next_cursor`.
+    Limit:
+      in: query
+      name: limit
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 50
+
+  securitySchemes:
+    spiffe_svid_bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: SPIFFE-JWT-SVID
+      description: |
+        FR-011 — Bearer JWT-SVID issued by the configured IdentityProvider.
+        Applies to Control / Governance / Audit Planes. Invalid or expired
+        SVIDs yield `ERR_AUTH_FAILED` (HTTP 401). Not used on Data Plane.
+    bearerSpiffeSvid:
+      type: http
+      scheme: bearer
+      bearerFormat: SPIFFE-JWT-SVID
+      description: Alias of `spiffe_svid_bearer` for backward compatibility with early-draft consumers.
+    mtls_spiffe_peer_cert:
+      type: mutualTLS
+      description: |
+        FR-025 — Governance-shape Data Plane inbound auth. Gateway terminates
+        TLS on the netns-internal veth; reads the agent's SPIFFE X.509 SVID
+        as the peer cert and verifies it against the configured trust domain.
+        Applies to managed_saas, vpc_runner, appliance tiers only.
+    spiffeMTLS:
+      type: mutualTLS
+      description: Alias of `mtls_spiffe_peer_cert`.
+    x_observed_identity:
+      type: apiKey
+      in: header
+      name: X-Observed-Identity
+      description: |
+        FR-017 — Standalone AI Gateway only. Signed JWT (RS256 / ES256 / EdDSA)
+        conforming to x_observed_identity.schema.json. Header stripped by the
+        Gateway before forwarding upstream.
+    observedIdentityJwt:
+      type: apiKey
+      in: header
+      name: X-Observed-Identity
+      description: Alias of `x_observed_identity`.
+    metricsBearer:
+      type: http
+      scheme: bearer
+      description: FR-032 — scrape-credential bearer token for `/metrics`.
+
+  responses:
+    RecurseError:
+      description: |
+        Recurse uniform error envelope per FR-010. Applies to Control,
+        Governance, and Audit Planes. Data Plane NEVER uses this envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            tier_mismatch:
+              summary: ERR_TIER_MISMATCH (HTTP 501)
+              value:
+                code: ERR_TIER_MISMATCH
+                message: "endpoint not implemented in this deployment tier"
+                correlation_id: "01HXXXXXXXXXXXXXXXXXXXXXXX"
+                details:
+                  active_tier: standalone_gateway
+                  endpoint_requires_tier: [managed_saas, vpc_runner, appliance]
+            validation:
+              summary: ERR_VALIDATION (HTTP 400)
+              value:
+                code: ERR_VALIDATION
+                message: "Idempotency-Key header missing or malformed"
+                correlation_id: "01HXXXXXXXXXXXXXXXXXXXXXXX"
+
+  schemas:
+    # ----- Cross-cutting shapes -----
+    ErrorEnvelope:
+      type: object
+      required: [code, message, correlation_id]
+      properties:
+        code:
+          type: string
+          enum:
+            - ERR_AUTH_FAILED
+            - ERR_PRINCIPAL_FAILED
+            - ERR_VALIDATION
+            - ERR_TIER_MISMATCH
+            - ERR_RATE_LIMITED
+            - ERR_POLICY_DENIED
+            - ERR_TENANT_ISOLATION
+            - ERR_NOT_FOUND
+            - ERR_INTERNAL
+            - ERR_LEDGER_COMMIT_FAILED
+            - ERR_SESSION_UNKNOWN
+            - ERR_TOKEN_EXCHANGE_FAILED
+          description: |
+            Canonical FR-010 code enum. Cross-referenced in
+            `apps/recurse_shared/lib/recurse_shared/error_codes.ex` (authoritative
+            Elixir source) and in `contracts/error_codes.md` (narrative).
+        message:
+          type: string
+        correlation_id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+        details:
+          type: object
+          additionalProperties: true
+
+    Principal:
+      description: |
+        Per FR-026. Canonical principal claim produced by the PrincipalProvider.
+        Three discriminated `kind` variants; all serialized via RFC 8785 JCS.
+      oneOf:
+        - $ref: '#/components/schemas/PrincipalOboHuman'
+        - $ref: '#/components/schemas/PrincipalServiceAccount'
+        - $ref: '#/components/schemas/PrincipalAutonomous'
+      discriminator:
+        propertyName: kind
+        mapping:
+          obo_human: '#/components/schemas/PrincipalOboHuman'
+          service_account: '#/components/schemas/PrincipalServiceAccount'
+          autonomous: '#/components/schemas/PrincipalAutonomous'
+
+    PrincipalOboHuman:
+      type: object
+      required: [kind, schema_version, issuer, subject]
+      properties:
+        kind: { const: obo_human }
+        schema_version: { const: "1.0" }
+        issuer: { type: string }
+        subject: { type: string }
+        display_name: { type: string }
+        groups:
+          type: array
+          items: { type: string }
+
+    PrincipalServiceAccount:
+      type: object
+      required: [kind, schema_version, issuer, account_id]
+      properties:
+        kind: { const: service_account }
+        schema_version: { const: "1.0" }
+        issuer: { type: string }
+        account_id: { type: string }
+        scope:
+          type: array
+          items: { type: string }
+
+    PrincipalAutonomous:
+      type: object
+      required: [kind, schema_version, spiffe_id]
+      properties:
+        kind: { const: autonomous }
+        schema_version: { const: "1.0" }
+        spiffe_id:
+          type: string
+          pattern: '^spiffe://.+'
+
+    IdentityContext:
+      type: object
+      description: |
+        FR-026. Resolved exactly once at Gateway ingress; immutable. Propagates
+        by reference to Cedar evaluation, attestation construction, and
+        downstream auth injection (FR-047).
+      required: [machine_identity, principal, tenant_id, correlation_id]
+      properties:
+        machine_identity:
+          type: object
+          required: [spiffe_id]
+          properties:
+            spiffe_id: { type: string, pattern: '^spiffe://.+' }
+        principal:
+          $ref: '#/components/schemas/Principal'
+        tenant_id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+        correlation_id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+
+    AttestationEnvelope:
+      description: |
+        Alias for the Recurse-native attestation container. Full schema lives in
+        `contracts/attestation.schema.json` and is referenced here for tooling.
+      $ref: 'attestation.schema.json'
+
+    AttestationContainer:
+      $ref: 'attestation.schema.json'
+
+    CancellationFrame:
+      type: object
+      description: Terminal SSE frame emitted on cancel per FR-029.
+      required: [event, reason, correlation_id]
+      properties:
+        event:
+          type: string
+          const: cancellation
+        reason:
+          type: string
+          enum: [client_disconnect, client_delete, operator_abort]
+        correlation_id:
+          type: string
+        session_id:
+          type: string
+
+    DeniedCallFrame:
+      type: object
+      description: |
+        FR-016a / FR-016f denial frame. On OpenAI compat, this is a synthetic
+        assistant/tool-role message; on MCP SSE, a protocol-shaped error frame.
+        Both carry the policy attribution needed to trace back to the Cedar bundle.
+      required: [decision, policy_canonical_hash, correlation_id]
+      properties:
+        decision:
+          type: string
+          const: deny
+        policy_canonical_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        matched_rules:
+          type: array
+          items: { type: string }
+        correlation_id:
+          type: string
+        message:
+          type: string
+          description: "Human-readable denial reason surfaced to the agent."
+
+    # ----- OpenAI-compat Data Plane -----
+    OpenAIChatCompletionRequest:
+      type: object
+      description: |
+        OpenAI chat completions request shape. Passed through to the
+        configured LLMProvider; the Gateway attaches the IdentityContext
+        server-side; `stream: true` triggers SSE response.
+      required: [model, messages]
+      properties:
+        model: { type: string }
+        messages:
+          type: array
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role:
+                type: string
+                enum: [system, user, assistant, tool]
+              content: { type: string }
+        stream: { type: boolean, default: false }
+        temperature: { type: number }
+        max_tokens: { type: integer, minimum: 1 }
+
+    OpenAIChatCompletionResponse:
+      type: object
+      required: [id, object, created, model, choices]
+      properties:
+        id: { type: string }
+        object: { type: string, const: chat.completion }
+        created: { type: integer }
+        model: { type: string }
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              finish_reason: { type: string }
+              message:
+                type: object
+                properties:
+                  role: { type: string }
+                  content: { type: string }
+
+    OpenAIEmbeddingsRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model: { type: string }
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+
+    OpenAIEmbeddingsResponse:
+      type: object
+      required: [object, data, model]
+      properties:
+        object: { type: string, const: list }
+        model: { type: string }
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              object: { type: string, const: embedding }
+              index: { type: integer }
+              embedding:
+                type: array
+                items: { type: number }
+
+    OpenAIModelList:
+      type: object
+      required: [object, data]
+      properties:
+        object: { type: string, const: list }
+        data:
+          type: array
+          items:
+            type: object
+            required: [id, object]
+            properties:
+              id: { type: string }
+              object: { type: string, const: model }
+              owned_by: { type: string }
+
+    # ----- MCP Data Plane -----
+    MCPMessage:
+      type: object
+      description: Generic MCP message envelope; exact shape per MCP protocol version negotiated on the associated SSE channel.
+      additionalProperties: true
+
+    # ----- Control Plane -----
+    SpawnRequest:
+      type: object
+      required: [execution_mode, image, runtime_constraints, policy_bindings]
+      properties:
+        execution_mode:
+          type: string
+          enum: [byoc]
+          description: |
+            Only "byoc" is valid in v1.0. Other values (including the reserved
+            "managed_native") are rejected with `ERR_VALIDATION`.
+        image:
+          type: string
+          description: OCI image reference for the BYOC agent
+        identity:
+          type: object
+          required: [obo_user_id]
+          properties:
+            obo_user_id: { type: string }
+        runtime_constraints:
+          type: object
+          properties:
+            network_mode:
+              type: string
+              enum: [strict_egress_proxy]
+              description: Only mode in Phase 1 — netns + iptables routing through Gateway (FR-043).
+            budget_usd: { type: number, minimum: 0 }
+            cpu_limit: { type: string, description: "e.g., 2000m" }
+            memory_limit: { type: string, description: "e.g., 2Gi" }
+        policy_bindings:
+          type: array
+          items: { type: string }
+          description: OCI references or `oci://` URIs to Cedar policy bundles (FR-039).
+
+    SpawnResponse:
+      type: object
+      required: [run_id, spiffe_id, session_id]
+      properties:
+        run_id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+        spiffe_id:
+          type: string
+          pattern: '^spiffe://.+'
+        session_id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+
+    SessionList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SessionSummary' }
+        next_cursor:
+          type: string
+          nullable: true
+
+    SessionSummary:
+      type: object
+      required: [session_id, session_state, session_start, tenant_id, session_scope]
+      properties:
+        session_id: { type: string }
+        session_state:
+          type: string
+          enum: [active, interim_committed, commit_retry, commit_retry_exhausted, aborted, cancelled, committed]
+        session_start: { type: string, format: date-time }
+        session_end:
+          type: string
+          format: date-time
+          nullable: true
+        tenant_id: { type: string }
+        session_scope:
+          type: string
+          enum: [managed_agent_container, discovery_session]
+        commit_retry_exhausted: { type: boolean }
+
+    SessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/SessionSummary'
+        - type: object
+          required: [epochs]
+          properties:
+            epochs:
+              type: array
+              items:
+                type: object
+                required: [epoch, epoch_root]
+                properties:
+                  epoch: { type: integer, minimum: 0 }
+                  epoch_root: { type: string, description: 'session-chain Merkle root (hex sha256)' }
+                  committed_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  global_included: { type: boolean }
+
+    CancellationAck:
+      type: object
+      required: [session_id, new_state]
+      properties:
+        session_id: { type: string }
+        new_state:
+          type: string
+          const: cancelled
+
+    VersionResponse:
+      type: object
+      required: [version, built_at, git_commit, changelog_uri]
+      properties:
+        version: { type: string, example: "1.0.0" }
+        built_at: { type: string, format: date-time }
+        git_commit: { type: string }
+        changelog_uri: { type: string, format: uri }
+
+    HealthStatus:
+      type: object
+      required: [status, components]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        components:
+          type: object
+          properties:
+            gateway:
+              type: string
+              enum: [ok, degraded, down]
+            runtime:
+              type: string
+              enum: [ok, degraded, down, absent]
+              description: '"absent" when tier = standalone_gateway'
+            ledger:
+              type: string
+              enum: [ok, degraded, down]
+
+    ReadyStatus:
+      type: object
+      required: [ready]
+      properties:
+        ready: { type: boolean }
+        pending:
+          type: array
+          items: { type: string }
+          description: "component names still initializing when ready=false"
+
+    # ----- Governance Plane -----
+    PolicyBundleUploadResponse:
+      type: object
+      required: [policy_bundle_digest, uploaded_at]
+      properties:
+        policy_bundle_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        uploaded_at:
+          type: string
+          format: date-time
+        supersedes:
+          type: string
+          description: 'previous digest this bundle supersedes, if any'
+          nullable: true
+
+    PolicyBundleList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [policy_bundle_digest, uploaded_at]
+            properties:
+              policy_bundle_digest: { type: string }
+              uploaded_at: { type: string, format: date-time }
+              supersedes: { type: string, nullable: true }
+        next_cursor:
+          type: string
+          nullable: true
+
+    # ----- Audit Plane -----
+    ReceiptList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AttestationContainer' }
+        next_cursor:
+          type: string
+          nullable: true
+
+    # ----- Governance Plane — T085 schemas (FR-049) -----
+    PolicySimulateRequest:
+      type: object
+      required: [policy_text, mock_request]
+      properties:
+        policy_text:
+          type: string
+          description: |
+            Cedar policy source. Parsed via the Cedar NIF (research D3); syntax
+            errors surface as 400 with `PolicySimulateSyntaxError`.
+        mock_request:
+          type: object
+          required: [principal, action, resource, context]
+          properties:
+            principal:
+              type: object
+              required: [type, id]
+              properties:
+                type: { type: string }
+                id: { type: string }
+            action:
+              type: object
+              required: [type, id]
+              properties:
+                type: { type: string }
+                id: { type: string }
+            resource:
+              type: object
+              required: [type, id]
+              properties:
+                type: { type: string }
+                id: { type: string }
+            context:
+              type: object
+              additionalProperties: true
+
+    PolicySimulateResponse:
+      type: object
+      required: [decision, matched_rules, evaluation_micros]
+      properties:
+        decision:
+          type: string
+          enum: [Allow, Deny]
+        matched_rules:
+          type: array
+          items: { type: string }
+          description: Cedar policy IDs that matched (or empty for default-deny)
+        evaluation_micros:
+          type: integer
+          description: Cedar NIF evaluation time in microseconds; target <1000 p99
+
+    PolicySimulateSyntaxError:
+      type: object
+      required: [code, message, cedar_errors]
+      properties:
+        code:
+          type: string
+          enum: [ERR_VALIDATION]
+        message:
+          type: string
+        cedar_errors:
+          type: array
+          items:
+            type: object
+            required: [message, line, column]
+            properties:
+              message: { type: string }
+              line: { type: integer }
+              column: { type: integer }
+        correlation_id: { type: string }
+
+    PolicyProposeFromEventRequest:
+      type: object
+      description: Provide either `event_id` OR an inline `event` object; not both.
+      properties:
+        event_id:
+          type: string
+          description: Reference to a flagged denial event in the Audit Plane
+        event:
+          type: object
+          description: Inline event body (principal, action, resource, context, tenant_id)
+      oneOf:
+        - required: [event_id]
+        - required: [event]
+
+    PolicyProposeFromEventResponse:
+      type: object
+      required: [proposed_policy, scope_suggestions]
+      properties:
+        proposed_policy:
+          type: string
+          description: Cedar source that would have ALLOWed the flagged event
+        scope_suggestions:
+          type: array
+          items:
+            type: string
+            enum: [tenant-scope, principal-group-scope, resource-pattern-scope]
+          description: Tightening suggestions the AppSec engineer can apply pre-deploy
+
+    PolicyBlastRadiusRequest:
+      type: object
+      required: [candidate_policy, historical_window_seconds]
+      properties:
+        candidate_policy:
+          type: string
+          description: Cedar policy source under review
+        historical_window_seconds:
+          type: integer
+          minimum: 60
+          maximum: 7776000
+          description: Replay window (1 minute to 90 days)
+
+    PolicyBlastRadiusResponse:
+      type: object
+      required: [impacted_runs, impacted_agents, sample_divergences, partial]
+      properties:
+        impacted_runs:
+          type: integer
+          description: Count of runs whose decision would have differed under the candidate
+        impacted_agents:
+          type: integer
+          description: Distinct agent SPIFFE IDs affected
+        sample_divergences:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [run_id, old_decision, new_decision]
+            properties:
+              run_id: { type: string }
+              old_decision: { type: string, enum: [Allow, Deny] }
+              new_decision: { type: string, enum: [Allow, Deny] }
+              principal: { type: object }
+              resource: { type: object }
+              action: { type: object }
+        partial:
+          type: boolean
+          description: |
+            True if the synchronous deadline elapsed before full replay. Caller
+            may retry with a smaller `historical_window_seconds` or wait for
+            Phase-2 async-with-job-id path (US5 HANDOFF note 3).
+        estimated_total_runs:
+          type: integer
+          nullable: true
+          description: "Populated when `partial: true`"
+
+    # ----- Audit Plane — T089 schemas (FR-048) -----
+    AuditExportRequest:
+      type: object
+      required: [run_ids]
+      properties:
+        run_ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+            pattern: '^run_[0-9A-HJKMNP-TV-Z]{26}$'
+        include_detached_payloads:
+          type: boolean
+          default: true
+          description: |
+            When false, zip contains hashes only; payload bytes are NOT
+            retrieved via the FR-030 broker (useful for large-payload batches
+            where the auditor retrieves payloads separately).
+
+    AuditExportMultiStatus:
+      type: object
+      required: [succeeded, failed]
+      properties:
+        succeeded:
+          type: array
+          items:
+            type: object
+            required: [run_id]
+            properties:
+              run_id: { type: string }
+        failed:
+          type: array
+          items:
+            type: object
+            required: [run_id, code, message]
+            properties:
+              run_id: { type: string }
+              code:
+                type: string
+                enum:
+                  - ERR_NOT_FOUND
+                  - ERR_AUTH_FAILED
+                  - ERR_POLICY_DENIED
+                  - ERR_TENANT_ISOLATION
+                  - ERR_INTERNAL
+              message: { type: string }
+        zip_url:
+          type: string
+          nullable: true
+          description: Optional URL to download the zip when streamed to storage
+
+    SiemForwarderConfig:
+      type: object
+      required: [output_kind, batching, retry_policy]
+      properties:
+        output_kind:
+          type: string
+          enum: [stdout_ndjson, http_push]
+        http_push:
+          type: object
+          nullable: true
+          description: Required when output_kind is http_push.
+          properties:
+            url: { type: string, format: uri }
+            auth_kind:
+              type: string
+              enum: [none, bearer, splunk_hec, datadog_api_key, sentinel_aad]
+            auth_secret_ref:
+              type: string
+              description: |
+                SecretsProvider reference; the secret value is resolved at
+                forward time and NEVER echoed in this endpoint's response.
+        batching:
+          type: object
+          required: [max_events, max_bytes, max_latency_ms]
+          properties:
+            max_events: { type: integer, minimum: 1, maximum: 10000 }
+            max_bytes: { type: integer, minimum: 1024 }
+            max_latency_ms: { type: integer, minimum: 100, maximum: 60000 }
+        retry_policy:
+          type: object
+          required: [max_attempts, backoff_ms_initial, backoff_ms_max]
+          properties:
+            max_attempts: { type: integer, minimum: 1, maximum: 20 }
+            backoff_ms_initial: { type: integer }
+            backoff_ms_max: { type: integer }

@@ -1,0 +1,81 @@
+{
+  "kind": "gateway.r5e.io/v1alpha1/LlmCall",
+  "engine": "cedar",
+  "action": "call_model",
+  "resourceType": "Model",
+  "resourceId": "spec.model",
+  "context": {
+    "provider": {
+      "path": "spec.provider"
+    },
+    "identity": {
+      "path": "@actor.identity",
+      "whenAbsent": "absent"
+    },
+    "authority_roots": {
+      "path": "@actor.authorityRoots",
+      "whenAbsent": "absent"
+    },
+    "chatgpt_account_id": {
+      "path": "spec.gatewayContext.chatgpt_account_id",
+      "whenAbsent": "absent"
+    },
+    "model": {
+      "path": "spec.gatewayContext.model",
+      "whenAbsent": "absent"
+    },
+    "tenant": {
+      "path": "spec.gatewayContext.tenant",
+      "whenAbsent": "absent"
+    },
+    "principal_source": {
+      "path": "spec.gatewayContext.principal_source",
+      "whenAbsent": "absent"
+    },
+    "session_id": {
+      "path": "spec.gatewayContext.session_id",
+      "whenAbsent": "absent"
+    },
+    "prompt_hash": {
+      "path": "spec.gatewayContext.prompt_hash",
+      "whenAbsent": "absent"
+    },
+    "response_so_far_hash": {
+      "path": "spec.gatewayContext.response_so_far_hash",
+      "whenAbsent": "absent"
+    },
+    "upstream_domain": {
+      "path": "spec.gatewayContext.upstream_domain",
+      "whenAbsent": "absent"
+    },
+    "transport": {
+      "path": "spec.gatewayContext.transport",
+      "whenAbsent": "absent"
+    },
+    "started_at": {
+      "path": "spec.gatewayContext.started_at",
+      "whenAbsent": "absent"
+    },
+    "tool_args_hash": {
+      "path": "spec.gatewayContext.tool_args_hash",
+      "whenAbsent": "absent"
+    },
+    "estimated_completion_tokens": {
+      "path": "spec.gatewayContext.estimated_completion_tokens",
+      "whenAbsent": "absent"
+    },
+    "parallel_tool_call_index": {
+      "path": "spec.gatewayContext.parallel_tool_call_index",
+      "whenAbsent": "absent"
+    },
+    "tool_args_size_bytes": {
+      "path": "spec.gatewayContext.tool_args_size_bytes",
+      "whenAbsent": "absent"
+    },
+    "principal_groups": {
+      "path": "spec.gatewayContext.principal_groups",
+      "whenAbsent": "absent"
+    }
+  },
+  "description": "How an LlmCall is presented to Cedar: asking a model is an act policy may refuse, so the model is the resource and the provider is context. `provider` is optional on the Kind and is dropped when the instance omits it. Spec 011 \u00a711 (KS-7): every act now carries the actor's standing into the context \u2014 `identity` says whether the request was signed, and `authority_roots` names the keys its cited authority resolves to. Both are the kernel's own answers, settled before `authorize` runs and recorded on the receipt, so a rule written against them decides on the same facts a reader of the chain will see. The field they replace, `@actor.keyFingerprint`, was a fingerprint the actor asserted about itself and is removed from the grammar. R1-F4 (RC review 2026-09-05): `principal_source` is the gateway's own answer about where the client identity came from (`jwt`, `client_metadata`, `mtls_svid`, `anonymous`), so a rule can refuse an anonymous principal; it says how the gateway got the name, never that the name was authenticated."
+}

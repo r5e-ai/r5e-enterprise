@@ -1,0 +1,42 @@
+{
+  "group": "gateway.r5e.io",
+  "kind": "Completion",
+  "version": "v1alpha1",
+  "substrate": "artifact",
+  "naming": {
+    "mode": "content"
+  },
+  "description": "A model's response as submitted to the record. The bytes are a detached object at contentRef; identical bytes are one object, and this artifact's name is the hash of this spec.",
+  "schema": {
+    "required": [
+      "contentRef"
+    ],
+    "properties": {
+      "contentRef": {
+        "type": "ref",
+        "ref": {
+          "bytes": true
+        }
+      },
+      "mediaType": {
+        "type": "string"
+      },
+      "observedAt": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  },
+  "epistemicScope": {
+    "claims": [
+      "the bytes at contentRef were submitted as a model's response by the recorded actor at the recorded position on the chain",
+      "the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone"
+    ],
+    "doesNotClaim": [
+      "which call produced them (see LlmResponse)",
+      "that any tool call inside them ran",
+      "that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin"
+    ]
+  },
+  "predicates": []
+}

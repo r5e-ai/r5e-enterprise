@@ -1,0 +1,84 @@
+# Reference Tier Configuration — VPC Runner (contract-preview)
+# ---------------------------------------------------------------
+# Per FR-013 shipping matrix: VPC Runner is a contract-preview shape in
+# Phase 1 — API surface, Helm chart, and Provider Interface implementations
+# are specified, but full operational support and customer onboarding tooling
+# are deferred to Phase 1.5. This reference YAML is complete enough to
+# deploy in a customer's own VPC K8s today, but operators should expect
+# rough edges until the 1.5 release.
+#
+# Validates against: specs/001-api-jido-foundations/contracts/tier_config.schema.json.
+# Full Governance shape like Managed SaaS, but runs in the customer's cloud
+# account instead of Recurse-hosted. Netns + SPIFFE identity anchors.
+
+tier: vpc_runner
+topology: single_node
+
+tenant_id: "01HTENANTEXAMPLE000000000A"
+
+runtime:
+  enabled: true
+
+gateway:
+  enabled: true
+
+auth:
+  anchors:
+    netns: true
+    observed_identity: false
+  principal_provider:
+    impl: "Recurse.Providers.Impls.OidcPrincipalProvider"
+    config:
+      oidc_issuer: "https://customer-tenant.okta.com"
+      audience: "api://recurse-gateway"
+      rfc8693_token_exchange: true
+
+session:
+  interim_commit_event_count: 10000
+  interim_commit_threshold_minutes: 60
+
+providers:
+  llm:
+    impl: "Recurse.Providers.Impls.OpenAILLMProvider"
+    config:
+      api_base: "https://api.openai.com/v1"
+      secret_ref: "vault://vpc-runner/openai-api-key"
+  ledger:
+    impl: "Recurse.Providers.Impls.TrillianLedgerProvider"
+    config:
+      trillian_endpoint: "trillian.customer-vpc.svc.cluster.local:8090"
+      tree_id: 42
+  storage:
+    impl: "Recurse.Providers.Impls.S3StorageProvider"
+    config:
+      region: "us-east-2"
+      bucket: "customer-vpc-recurse-payloads"
+  secrets:
+    impl: "Recurse.Providers.Impls.AwsKmsSecretsProvider"
+    config:
+      region: "us-east-2"
+      signing_key_arn: "arn:aws:kms:us-east-2:111111111111:key/customer-signing-key-id"
+      signing_key_rotation_days: 90
+  identity:
+    impl: "Recurse.Providers.Impls.SpireIdentityProvider"
+    config:
+      spire_server: "spire-server.customer-vpc.svc.cluster.local:8081"
+      trust_domain: "customer-vpc.example.com"
+  policy:
+    impl: "Recurse.Providers.Impls.OciPolicyProvider"
+    config:
+      registry: "registry.customer-vpc.example.com"
+      repository: "policies/vpc-runner"
+
+cedar:
+  version_pin: "4.9.1"
+  cedar_crate_digest: "sha256:50368b44367cd7664627bbee9bfe5721d10ab2433daf77645833645e8eb746da"
+
+rate_limits:
+  data_plane_qps_per_agent: 120
+  control_plane_qps_per_tenant: 60
+  max_payload_bytes: 2097152
+
+features:
+
+dev_mode: false

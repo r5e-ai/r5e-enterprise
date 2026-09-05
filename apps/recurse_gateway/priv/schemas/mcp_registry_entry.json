@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/mcp_registry_entry.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "mcp_registry_entry",
+  "description": "Single MCP server entry in the Recurse Trusted Registry. Vertical-slice scaffold for the demo (Path B); Phase-2+ adds digital-signing chain for SBOM components and per-tenant overrides. Self-contained: shape mirrors `mcp_registry_list_response.json#/$defs/McpRegistryEntry` so the codegen path stays single-file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "description",
+    "source",
+    "version",
+    "transport",
+    "trust_tier",
+    "publisher",
+    "capabilities",
+    "policy_constraints",
+    "sbom"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "description": "Stable kebab-case identifier; URL-safe."
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description": { "type": "string" },
+    "source": {
+      "type": "string",
+      "description": "Source URL or identifier (e.g. github.com/<org>/<repo>)."
+    },
+    "version": { "type": "string", "minLength": 1 },
+    "transport": {
+      "type": "string",
+      "enum": ["http", "stdio", "websocket", "sse"]
+    },
+    "trust_tier": {
+      "type": "string",
+      "enum": ["verified", "community", "quarantined"]
+    },
+    "publisher": { "type": "string" },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tools"],
+      "properties": {
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "description"],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "input_schema_ref": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "policy_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cedar_policies": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Cedar policy strings gating tool calls against this MCP server."
+        },
+        "rate_limit_per_minute": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Hard cap; 0 means policy-denied (used for quarantined entries)."
+        }
+      }
+    },
+    "sbom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "digest", "components"],
+      "properties": {
+        "format": { "type": "string" },
+        "digest": {
+          "type": "string",
+          "description": "SBOM content digest (sha256:<hex>) — Phase-1 placeholder; Phase-2+ becomes mandatory and verified."
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version"],
+            "properties": {
+              "name": { "type": "string" },
+              "version": { "type": "string" },
+              "license": { "type": "string" },
+              "purl": { "type": "string" },
+              "vulnerabilities": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "severity", "summary"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "source": { "type": "string" },
+                    "severity": {
+                      "type": "string",
+                      "enum": ["low", "medium", "high", "critical", "unknown"]
+                    },
+                    "summary": { "type": "string" },
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Optional advisory URL (NVD, GHSA, vendor security bulletin)."
+                    },
+                    "fixed_versions": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

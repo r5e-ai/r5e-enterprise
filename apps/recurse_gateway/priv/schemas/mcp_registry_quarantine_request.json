@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/mcp_registry_quarantine_request.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "mcp_registry_quarantine_request",
+  "description": "Request body for PATCH /v1/mcp/registry/{id} — the F7 quarantine workflow. Operator-only mutation that flips an entry's trust_tier (and the documented Cedar policy clause + rate_limit_per_minute). Emits a DSSE-signed :ui_mcp_quarantine ledger receipt BEFORE the HTTP response (Principle III).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["trust_tier"],
+  "properties": {
+    "trust_tier": {
+      "type": "string",
+      "enum": ["verified", "community", "quarantined"],
+      "description": "Target trust tier. Quarantining (verified|community -> quarantined) snapshots the prior cedar_policies + rate_limit_per_minute into sibling fields and rewrites cedar_policies to a forbid(...) clause + rate_limit_per_minute=0. Restoring (quarantined -> verified|community) reads back the snapshot fields when present."
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "maxLength": 500,
+      "description": "Optional auditor-facing free-text justification (≤ 500 bytes). Carried into the receipt payload for SIEM correlation. Empty string normalises to null."
+    }
+  }
+}

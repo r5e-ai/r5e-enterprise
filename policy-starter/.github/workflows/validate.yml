@@ -1,0 +1,30 @@
+# Parse-check the Cedar bundle on every push with the Cedar CLI at the
+# version the r5e gateway embeds (cedar-policy 4.9.1). ubuntu-latest ships
+# a Rust toolchain; the compiled CLI is cached between runs.
+name: validate
+on:
+  push:
+  pull_request:
+
+jobs:
+  cedar:
+    runs-on: ubuntu-latest
+    env:
+      CEDAR_CLI_VERSION: "4.9.1"
+      CARGO_INSTALL_ROOT: ${{ github.workspace }}/.cargo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .cargo
+          key: cedar-policy-cli-${{ env.CEDAR_CLI_VERSION }}-${{ runner.os }}
+      - name: Install the Cedar CLI
+        run: |
+          export PATH="$CARGO_INSTALL_ROOT/bin:$PATH"
+          command -v cedar >/dev/null || cargo install cedar-policy-cli --version "$CEDAR_CLI_VERSION" --locked
+          cedar --version
+      - name: Parse-check the bundle
+        run: |
+          export PATH="$CARGO_INSTALL_ROOT/bin:$PATH"
+          cedar check-parse --policies policy/bundle.cedar
+          sha256sum policy/bundle.cedar

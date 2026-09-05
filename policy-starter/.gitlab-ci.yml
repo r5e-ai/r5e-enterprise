@@ -1,0 +1,22 @@
+# Parse-check the Cedar bundle on every push with the Cedar CLI at the
+# version the r5e gateway embeds (cedar-policy 4.9.1). The compiled CLI is
+# cached between pipelines; the first run builds it (a few minutes).
+stages: [validate]
+
+validate:cedar:
+  stage: validate
+  image: rust:1.92-slim-bookworm
+  variables:
+    CEDAR_CLI_VERSION: "4.9.1"
+    CARGO_INSTALL_ROOT: "$CI_PROJECT_DIR/.cargo"
+  cache:
+    key: "cedar-policy-cli-$CEDAR_CLI_VERSION"
+    paths:
+      - .cargo/
+  before_script:
+    - export PATH="$CARGO_INSTALL_ROOT/bin:$PATH"
+    - command -v cedar >/dev/null || cargo install cedar-policy-cli --version "$CEDAR_CLI_VERSION" --locked
+    - cedar --version
+  script:
+    - cedar check-parse --policies policy/bundle.cedar
+    - sha256sum policy/bundle.cedar

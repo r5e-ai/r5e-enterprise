@@ -1,0 +1,9 @@
+{"type":"response.created","response":{"id":"resp_codex149","object":"response","status":"in_progress"}}
+{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_001","content":[]}}
+{"type":"response.output_item.added","output_index":1,"item":{"type":"custom_tool_call","id":"ctc_001","call_id":"call_rm_7","name":"shell","input":"","status":"in_progress"}}
+{"type":"response.custom_tool_call_input.delta","item_id":"ctc_001","output_index":1,"delta":"{\"cmd"}
+{"type":"response.custom_tool_call_input.delta","item_id":"ctc_001","output_index":1,"delta":"\":\"rm -rf"}
+{"type":"response.custom_tool_call_input.delta","item_id":"ctc_001","output_index":1,"delta":" /tmp/demo\"}"}
+{"type":"response.custom_tool_call_input.done","item_id":"ctc_001","output_index":1,"input":"{\"cmd\":\"rm -rf /tmp/demo\"}"}
+{"type":"response.output_item.done","output_index":1,"item":{"type":"custom_tool_call","id":"ctc_001","call_id":"call_rm_7","name":"shell","input":"{\"cmd\":\"rm -rf /tmp/demo\"}","status":"completed"}}
+{"type":"response.completed","response":{"id":"resp_codex149","status":"completed","usage":{"input_tokens":31,"output_tokens":9}}}

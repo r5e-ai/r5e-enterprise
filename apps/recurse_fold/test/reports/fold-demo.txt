@@ -1,0 +1,137 @@
+r5e verifier -- bundle: <bundle>
+
+checked:
+  chain: intact -- 40 events, seq contiguous, every hash recomputed from canonical encoding, every prev link verified
+  checkpoint signature: verified (ed25519 over DSSE PAE) against bundled key sha256:6b567204a1aa... -- proves log integrity as attested by that key, NOT the key holder's identity
+  STH: signed chain head matches the last event hash (seq 40)
+  merkle: root rebuilt from 40 event hashes matches the signed STH root; inclusion proofs generated and verified for all 40 events
+  payloads: 40/40 event payloads present in bundle CAS and matching their address
+  claims: 39 admissions, 1 denials, by 2 actor(s) (key:ed25519:sha256:d8d398264bc12521062c4b88d20d16ce868f22ab6ddd875aeb88ce2dcf4979cf, key:ed25519:sha256:111083b6617d290bab270d5d30f5142bf32fecc5ba2542df618755f5bf0e8dfa) -- actor identity is a recorded fingerprint, NOT a verified signature
+  signatures: 39 of 39 admissions signed and verified with the keys on their payloads; 0 legacy unsigned
+  denial signatures: 1 of 1 recorded denials signed and verified with the keys on their payloads; 1 of 1 copied request projections match
+  endorsements: 24 chains cited across 24 admissions; 0 resolved to a pinned root; 0 cut
+  identities: 0 keys with self profiles; 0 keys acting under badges; 0 keys acting only under badges with no self profile; badge-only keys by declared kind: person 0, agent 0, org 0, instrument 0, service 0, mixed 0; deployment declaration: none; reader posture: house
+  policy: 40/40 receipts record a policy decision (engines: cedar); 26 cite an admitted policy object (2 distinct), all 26 present in bundle CAS and matching their address; 14 allowed with no bundle in force (bootstrap); denials: 1, citing the policy object that denied; 26 cite a policy evaluation record: each present, each declared kernel-derived, each agreeing with its receipt on engine, engineBuild, bundle, source, shape, decision and matched (spec/05 §8), with decodable requestBytes/entitiesBytes and a kindDefinition admitted on this chain -- the cited object is the policy the gate read, NOT proof that evaluating it yields the recorded decision
+  upstream policy[1]: 3/40 receipts record a policy decision (engines: cedar); 3 cite an admitted policy object (1 distinct), all 3 present in bundle CAS and matching their address; 0 allowed with no bundle in force (bootstrap); denials: none; 3 cite a policy evaluation record: each present, each declared kernel-derived, each agreeing with its receipt on engine, engineBuild, bundle, source, shape, decision and matched (spec/05 §8), with decodable requestBytes/entitiesBytes and a kindDefinition admitted on this chain -- the cited object is the policy the gate read, NOT proof that evaluating it yields the recorded decision
+  refs: 12 typed refs recorded across 9/40 receipts (bytes 4, event 6, kind 2); every one re-derived from this bundle: kind refs resolve to an admission at a lower seq whose spec hashes to the recorded address, event refs to an event at the recorded seq with the recorded target Kind and outcome, bytes objects present, coinciding with no event payload address and no admitted spec address, and backed by the CasObject admission the entry names (or declared kernel-derived)
+  cas: 7 object(s) admitted, 0 expired, 29 kernel-derived (each cited by a receipt's policy evaluation, a resolution manifest, or an admitted spec, and the export's list is exactly the union of the payloads' own derivedObjects); every object in this bundle's CAS is accounted for: an event payload, an admitted spec, an admitted CasObject, or a declared kernel-derived object
+
+epistemic scope of Kinds involved:
+  core.r5e.io/v1 Badge
+    naming: content
+    description: An issued credential, SSH-certificate or SVID shaped: the issuer (first signer) mints authority for `subject` — a key it may itself hold — scoped to Kinds and a term; the subject countersigns (second signer), so a key enters badge status only by its own act. A badge is exercised by citing it; a self may hold badges and still act as itself. Acts citing a badge are attributed to the badge key and were done in the issuer's name.
+    claims: the issuer issued this credential for the subject key at the recorded position, for these Kinds, in this term, and the subject key countersigned it; acts citing this badge were done in the issuer's name, by the badge key
+    does NOT claim: that the issuer does not hold the subject key; that the subject is any particular person or agent — subjectKind is the issuer's claim; that the recorded actor is any particular person, organization, or agent beyond the key that signed — a name is a claim; a key id is the identity
+  core.r5e.io/v1 CasExpired
+    naming: content
+    description: A raw object removed from the CAS by an actor whose cited authority covers this Kind (on a fresh chain, the retention key endorsed by the node key at event 10); a public-record object can never be expired.
+    claims: at the recorded position on the chain, the object at this address was uncited by any admitted spec, resolution manifest, event payload, or specAddress, and was removed by an actor whose cited authority covered this Kind
+    does NOT claim: that the bytes never existed or were never read
+  core.r5e.io/v1 CasObject
+    naming: content
+    description: Raw bytes entering the CAS. PUT /cas is an admission of this Kind: the kernel hashes the body, builds this spec, runs the pipeline, and writes the bytes only as the admit step of a granted admission. The payload never carries the bytes.
+    claims: the recorded actor stored bytes of this size at this content address at the recorded position on the chain
+    does NOT claim: anything about the bytes' meaning, origin, or media type beyond the recorded label
+  core.r5e.io/v1 Deployment
+    naming: literal (value "deployment")
+    description: The deployment's own declaration of what it is: a house (its own agents, its own fence) or a commons (a system governing people's participation in the world). Admitted once, by the node key, never superseded; printed beside the identities line on every verifier run, where the reader's own posture — not this declaration — decides whether badge-only persons are a finding.
+    claims: the node key declared, at the recorded position, whether this deployment governs people's participation in the world
+    does NOT claim: that the declaration is true — the identities line printed beside it is the evidence, and the reader's posture decides what it means
+  core.r5e.io/v1 Endorsement
+    naming: content
+    description: A self vouching for a key someone else holds: the actor of record attests that `subject` may admit the listed Kinds between `notBefore` and `notAfter`, with or without the right to issue further authority, optionally in a named role. Effective only while every link to a root is effective; withdrawn by a Revocation from the same actor or its successor.
+    claims: the actor of record vouched, at the recorded position, that the subject key may admit these Kinds in this term, with or without the right to issue; when a parent is cited, the actor exercised that parent's authority at this position and the parent covered it
+    does NOT claim: that the subject holds the key — custody is the subject's own claim; that the free-form scope is within the parent's — only issuance, Kinds, and term narrow by rule; that the recorded actor is any particular person, organization, or agent beyond the key that signed — a name is a claim; a key id is the identity
+  core.r5e.io/v1 KindDefinition
+    naming: path
+    description: The meta-Kind, v3 (spec 011): adds top-level `signatures` (1 or 2), `requiresAuthority`, and naming `admitBy`/`readmitBy`. Its own name is its group/version/kind path.
+    claims: a Kind with this identity, substrate, naming mode and schema was submitted by the recorded actor and admitted at the recorded position on the chain; subsequent instances of the defined Kind were validated against this schema at admission, under the schema-lite v2 rules
+    does NOT claim: that the defined Kind's schema is meaningful, complete, or fit for any purpose; that instances of the defined Kind are correct, or that their content is sound
+  core.r5e.io/v1 PolicyBundle
+    naming: literal (value "active")
+    description: The Cedar policy in force for kernel admission. Its source is detached at sourceRef and retained with the public record. Only the node key can create or supersede the active bundle.
+    claims: the detached Cedar source was admitted as a public-record object and this active resource cites it; only the effective node key can create or supersede this active kernel policy bundle; each evaluated admission records the bundle generation and exact Cedar request and entities
+    does NOT claim: that the policy is correct or complete; that the measured engine artifacts came from any particular published source tree; that another system enforced this kernel decision outside the kernel
+  core.r5e.io/v1 Principal
+    naming: derived (derive "{key}")
+    description: An optional profile a key publishes about itself. The key is the principal whether or not a profile exists; the profile adds claims (kind, custody, a display name). One profile per key, superseded only by that key or its successor. A successor does not re-admit a predecessor's profile: the Succession event is the record of the key change, and the successor admits its own Principal under its own key.
+    claims: the key that signed this admission published this profile of itself at the recorded position on the chain; the profile was superseded, if ever, only by that key or by its recorded successor
+    does NOT claim: that the custody declaration is true beyond the key's own word — a runtime holding a key can be compromised and an operator owning the runtime can read it; this sentence is printed wherever custody is printed; that the recorded actor is any particular person, organization, or agent beyond the key that signed — a name is a claim; a key id is the identity; that a display name is unique, or is anyone's legal name
+  core.r5e.io/v1 Revocation
+    naming: content
+    description: Withdrawal of an Endorsement, Badge, or Succession by the actor that made it or that actor's current successor. Effective from its own sequence; nothing earlier changes; revoking a Succession removes its edge and reopens the predecessor's slot.
+    claims: the actor of record — the target's endorser, issuer, or predecessor, or that actor's current successor — withdrew the target at the recorded position
+    does NOT claim: that acts admitted under the target before this position were wrong — they were valid when admitted; that the recorded actor is any particular person, organization, or agent beyond the key that signed — a name is a claim; a key id is the identity
+  core.r5e.io/v1 Succession
+    naming: content
+    description: Continuity of a principal across a key change, signed by the predecessor (first signer) and the successor (second signer). At most one outgoing edge per predecessor and one incoming per successor; no self-edge; no cycle. Authority bound to the predecessor follows the successor by sequence; the predecessor's later signatures remain valid, printed as post-succession.
+    claims: both keys signed this record at the recorded position: the predecessor named the successor and the successor proved possession by signing; no earlier unrevoked Succession names this predecessor or this successor
+    does NOT claim: which holder of a shared or stolen predecessor key acted — a revoked and re-made succession is printed as contested, and endorsers decide whom they endorse next; that the recorded actor is any particular person, organization, or agent beyond the key that signed — a name is a claim; a key id is the identity
+  gateway.r5e.io/v1alpha1 AgentSession
+    naming: server
+    description: A span of work by one actor, named by the kernel from its admission event and replaceable only by that actor. Every field is optional; the actor is the actor of record on the admission.
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: the actor of record on this resource's admission opened a span of work at the recorded position on the chain, with the recorded harness and purpose when present; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: on whose behalf the work ran beyond the authority the admission cited — an Endorsement says a key may admit these Kinds in this term, never that any particular person asked for this session; that this session's events are all of its events; that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin
+  gateway.r5e.io/v1alpha1 Completion
+    naming: content
+    description: A model's response as submitted to the record. The bytes are a detached object at contentRef; identical bytes are one object, and this artifact's name is the hash of this spec.
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: the bytes at contentRef were submitted as a model's response by the recorded actor at the recorded position on the chain; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: which call produced them (see LlmResponse); that any tool call inside them ran; that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin
+  gateway.r5e.io/v1alpha1 LlmCall
+    naming: content
+    description: One request to a model: who asked, which model, with which prompt. Parameter values are strings, integers, or booleans; a floating-point parameter such as a temperature is recorded as its decimal string.
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: the recorded actor asked model `model` to complete the prompt at `prompt`, at the recorded position on the chain; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: that the provider received it; that a response occurred (see LlmResponse); that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin; that gatewayContext client identity or groups were cryptographically authenticated; these are observations signed by the gateway service, distinct from the admission signer
+  gateway.r5e.io/v1alpha1 LlmResponse
+    naming: content
+    description: How one model call ended: its outcome, its response bytes when there were any, and the tool calls the gateway extracted from it, in the model's order. toolCalls is required and may be empty.
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: the call at `llmCall` ended with `outcome` as recorded by the actor; when `completion` is present, the response bytes the actor recorded for that call are the Completion it names; the events listed in `toolCalls` are the tool calls the actor extracted from that response, in the order given by their `index`; when `responseWithheld` is true, the actor did not release the upstream's response bytes to the client: nothing in that body was classified, so nothing in it was admitted; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: that the listed tool calls are all the tool calls the model proposed — absence from the record is never provable; that the listed tool calls ran; that the usage figures are the provider's; that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin
+  gateway.r5e.io/v1alpha1 PolicyBundle
+    naming: literal (value "active")
+    description: The policy text in force, detached at sourceRef with public-record retention. Only the name `active` is admissible; admitting it is the activation, and re-admitting it supersedes the previous bundle on the record (supersededBy on the store entry).
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: the policy text at `sourceRef` was submitted by the recorded actor and admitted under the name `active` at the recorded position on the chain; this bundle governs only the workload Kind paths declared in governs, never kernel or gateway policy-management admissions; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: that the policy is correct, complete, or expresses anyone's intent; that whoever set policy was entitled to set it — the record shows which key admitted it and which endorsement chain that key exercised; whether that chain roots in a key worth trusting is the reader's pin to make, never this chain's claim; that any decision recorded under it was enforced outside this kernel's admission gate; that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin
+  gateway.r5e.io/v1alpha1 PolicyShape
+    naming: derived (derive "{engine}.{kind}")
+    description: How instances of one Kind are presented to a policy engine: an action, a resource, and context, each a path into the instance or a literal (grammar in schema-lite-v2 §8). Presentation, not authority. Named `<engine>.<target Kind path>`, or `<engine>.*` for the fallback.
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: this presentation for the named Kind and engine was submitted by the recorded actor and admitted at the recorded position on the chain; from that position until the next admission under the same name, receipts for that Kind cite this shape's address, and their evaluation records were built from it; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: that the engine is correct; that the shape expresses anyone's intent; that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin
+  gateway.r5e.io/v1alpha1 Prompt
+    naming: content
+    description: A prompt submitted for sending to a model. The bytes are a detached object at contentRef; the artifact's name is the hash of this spec, so the same bytes recorded with a different mediaType, role, or session are a second artifact citing the same object.
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: the bytes at contentRef were submitted as a prompt by the recorded actor at the recorded position on the chain, with the recorded role, media type, and session; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: that a model received them; that they are the whole of what the model saw; that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin
+  gateway.r5e.io/v1alpha1 ToolCall
+    naming: content
+    description: The recorded actor asked to invoke a tool with these arguments (inline, possibly empty, or detached at argsRef); policy decided at admission, and a denial is as fully recorded as an admission.
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: the recorded actor asked to invoke `tool` with these arguments, at the recorded position on the chain; the policy bundle, source, and evaluation record cited on this receipt — and the shape when one was in force — produced the recorded outcome at admission, before any substrate write; a denial is as fully recorded as an admission — asking is itself an act; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: that the tool ran; that the tool ran with these arguments, or produced any particular result; that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin; that anything outside this kernel honored the recorded decision; that gatewayContext client identity or groups were cryptographically authenticated; these are observations signed by the gateway service, distinct from the admission signer
+  gateway.r5e.io/v1alpha1 ToolResult
+    naming: content
+    description: What the recorded actor reports came back from a tool call: inline (a string, object, or array, possibly empty) or detached at resultRef.
+    derivedFrom: bytes:sha256:62c9415d68f7ae55cea32444855ffd5ea220935734d0ff66cfcfdce9e61a57fc
+    claims: the recorded actor reported that the tool call at `toolCall` ended with `outcome` and returned this result; the key recorded as the actor signed this request over its canonical bytes, and the authority it cited resolved, link by link, to a root on this same chain — both re-derivable offline from the bundle alone
+    does NOT claim: that the tool produced it; that it is complete; that any person, office, or organization holds the key that signed — the record binds the act to a key and the key to the authority it acted under, and neither to anyone; a reader who wants a name pins a root key and owns the pin
+
+findings:
+  none -- every check above passed on this bundle's contents
+
+not checked (state this wherever the output is quoted):
+  key-to-identity binding: the checkpoint key is self-declared -- no endorsement chain ties it to a person, office, or deployment (spec/03)
+  a PolicyShape citing a retired envelope field is refused by the **policy engine** at authorize and not by the kernel (spec/06 §11): the envelope grammar belongs to the engine, and the kernel does not interpret a shape's paths. On a deployment running no engine, or one that does not implement the grammar, such a shape is admitted and the stale-shape finding is the only signal there is
+  denial outcomes and reasons are the node's reports of rejection; signatures identify the request signer, not whether the rejection was correct or enforced
+  the policy decision itself: a recorded decision is never re-derived -- this verifier runs no policy engine; it establishes that the policy object a receipt cites is present and unaltered, not that evaluating it would yield the recorded outcome
+  endorsement and badge terms are compared against timestamps this deployment wrote; sequence order is proven, wall-clock validity is not
+  kernel-assigned instance names (content and server naming) are not re-derived from the signed target, which carries no name for them
+  equivocation/split-view: consistency is proven only between the checkpoints presented to this run; detecting a forked log served to different audiences requires independent witnesses gossiping STHs
+  completeness attestations (none present; absence of events from the world is never provable)
+  consistency with an earlier checkpoint: no prior export presented (pass --prior PATH_TO_EARLIER_BUNDLE)

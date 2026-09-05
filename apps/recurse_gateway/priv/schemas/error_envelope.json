@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gateway.example.com/v1/schemas/error_envelope.json",
+  "x-version": "1.0.0",
+  "x-status": "stable",
+  "title": "error_envelope",
+  "description": "Canonical flat error envelope emitted by every audit-plane / admin-plane handler post-MR-!31. Replaces the F001-nested shape. Built by Recurse.Gateway.AuditPlane.ErrorEnvelope.build/3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error", "error_description", "correlation_id"],
+  "properties": {
+    "error": {
+      "type": "string",
+      "description": "Machine-readable error code (UPPER_SNAKE_CASE prefixed with ERR_).",
+      "pattern": "^ERR_[A-Z_]+$"
+    },
+    "error_description": {
+      "type": "string",
+      "description": "Human-readable description for UI display."
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Request correlation ID; defaults to 'unknown' when absent."
+    },
+    "attested_run_id": {
+      "type": ["string", "null"],
+      "description": "When a denial produced an attestation receipt, this is the run_id of that receipt. Null otherwise."
+    }
+  }
+}
