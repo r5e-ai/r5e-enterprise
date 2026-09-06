@@ -20,3 +20,7 @@ release branch yet; when there is, this file will name it.
 
 Public disclosure is coordinated with the reporter. The finding, the fix and
 the date are recorded in the repository afterwards.
+
+## Release signing
+
+Tags are signed with the steward's hardware-held release key and releases carry a freight document signed by the steward's root key; both keys, and how to verify them, are listed under "Steward keys" in the README. A tag or freight that does not verify against those keys was not released by the steward.

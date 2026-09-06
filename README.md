@@ -56,3 +56,12 @@ version 3, full text in [LICENSE](LICENSE), scope and the two exceptions in
 Canonical repository: [gitlab.com/r5e-group/r5e-enterprise](https://gitlab.com/r5e-group/r5e-enterprise).
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
+
+## Steward keys
+
+Releases of this repository are signed by the steward, r5e Inc., with keys held on hardware.
+
+- **Root key** (signs the release freight, and later governance acts on the public chain): `key:ed25519:sha256:aeb2f4f7d81d87ce8e9f437fa5bada43d41d7cf5badcceffdf37403ddfee53fc`
+- **Release signing key** (signs tags; a device key, not the root): `sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIBtRc8IONTDUOq5HioZEa1qpH9XT4z80VM0tcdJ8lSImAAAAD3NzaDpyNWUtcmVsZWFzZQ== Thomas Jones (gitlab.com)`
+
+To check a tag: put the line `thomas@runr5e.ai namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIBtRc8IONTDUOq5HioZEa1qpH9XT4z80VM0tcdJ8lSImAAAAD3NzaDpyNWUtcmVsZWFzZQ== Thomas Jones (gitlab.com)` in a file, then `git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=<that file> tag -v v0.1.0`. To check a release's freight: download `freight.dsse.json` and `verify-freight.py` from the release and run `python3 verify-freight.py freight.dsse.json key:ed25519:sha256:aeb2f4f7d81d87ce8e9f437fa5bada43d41d7cf5badcceffdf37403ddfee53fc` (needs the `cryptography` package). The freight for v0.1.0 is `bytes:sha256:7c9d09d5128ba090ff339455db150091fd6fd7b2dbf1ce1e9e2297831ae288fd`.
