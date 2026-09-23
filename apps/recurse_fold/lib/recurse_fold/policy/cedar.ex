@@ -174,12 +174,7 @@ defmodule Recurse.Fold.Policy.Cedar do
     upstream_generations = upstream["generations"] || %{}
     local_generations = meta["generations"] || %{}
 
-    conflicts =
-      for {ref, generation} <- local_generations,
-          Map.has_key?(upstream_generations, ref),
-          upstream_generations[ref] != generation,
-          into: %{},
-          do: {ref, %{"upstream" => upstream_generations[ref], "local" => generation}}
+    conflicts = generation_conflicts(upstream_generations, local_generations)
 
     derived = Enum.uniq((upstream["derivedObjects"] || []) ++ (meta["derivedObjects"] || []))
     nested = Map.put(meta, "upstreamPolicy", upstream)
@@ -190,10 +185,7 @@ defmodule Recurse.Fold.Policy.Cedar do
         |> Map.put("generations", Map.merge(upstream_generations, local_generations))
         |> Map.put("derivedObjects", derived)
 
-      case outcome do
-        :ok -> {:ok, composed}
-        {:deny, reason} -> {:deny, reason, composed}
-      end
+      composed_result(outcome, composed)
     else
       # The Cedar result remains intact: changing its decision would disagree
       # with its evaluation record. The outer block records composition only.
@@ -213,6 +205,17 @@ defmodule Recurse.Fold.Policy.Cedar do
 
       {:deny, "policy generation conflict (fail-closed)", meta}
     end
+  end
+
+  defp composed_result(:ok, meta), do: {:ok, meta}
+  defp composed_result({:deny, reason}, meta), do: {:deny, reason, meta}
+
+  defp generation_conflicts(upstream, local) do
+    for {ref, generation} <- local,
+        Map.has_key?(upstream, ref),
+        upstream[ref] != generation,
+        into: %{},
+        do: {ref, %{"upstream" => upstream[ref], "local" => generation}}
   end
 
   defp skipped_meta(decision, note) do
