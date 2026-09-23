@@ -101,7 +101,7 @@ defmodule Recurse.Shared.Attestation.DsseVerifyEs256Test do
 
       # Confirm we actually generated a DER signature (sanity check).
       assert <<0x30, _rest::binary>> = der_sig
-      assert byte_size(der_sig) in 70..72
+      assert byte_size(der_sig) in 8..72
 
       assert :ok = Dsse.verify_es256(@payload_type, payload, der_sig, pem)
     end
@@ -118,6 +118,97 @@ defmodule Recurse.Shared.Attestation.DsseVerifyEs256Test do
     end
   end
 
+  describe "verify_es256/4 — deterministic encoding regressions" do
+    setup do
+      # Public point for the test-only private scalar d = 1 (P-256's generator).
+      jwk =
+        JOSE.JWK.from_map(%{
+          "kty" => "EC",
+          "crv" => "P-256",
+          "x" =>
+            hex_coordinate("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"),
+          "y" =>
+            hex_coordinate("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5")
+        })
+
+      {_, pem} = JOSE.JWK.to_pem(jwk)
+      {:ok, public_pem: pem}
+    end
+
+    test "verifies a fixed 69-byte DER signature and its raw equivalent", %{public_pem: pem} do
+      # ECDSA over PAE(type, payload), d = 1, nonce k = 278. The s integer
+      # needs only 31 bytes. No random search is needed to exercise this case.
+      der =
+        Base.decode16!(
+          "304302207c53cbed04c48186aae30f51aa74dc31b04939146fc7156c4128b41f9ade187f" <>
+            "021f07f857dfd18fccc46c6f328d5c023d01518b5df3089679d1798892a1b87f68",
+          case: :lower
+        )
+
+      <<0x30, 67, 0x02, 32, r::binary-size(32), 0x02, 31, s::binary-size(31)>> = der
+      raw = r <> <<0>> <> s
+      assert byte_size(der) == 69
+      assert :ok = Dsse.verify_es256(@payload_type, "fixed-es256-regression", der, pem)
+      assert :ok = Dsse.verify_es256(@payload_type, "fixed-es256-regression", raw, pem)
+
+      assert {:error, :signature_mismatch} =
+               Dsse.verify_es256(@payload_type, "tampered", der, pem)
+    end
+
+    test "verifies fixed raw bytes starting with the DER sequence tag", %{public_pem: pem} do
+      # Same payload and d = 1, nonce k = 31. The first raw byte is 0x30.
+      raw =
+        Base.decode16!(
+          "301d9e502dc7e05da85da026a7ae9aa0fac9db7d52a95b3e3e3f9aa0a1b45b8b" <>
+            "a2fb674822cb045d2bb79748149e11f4f3746ffffed729d2884f21735dd62db0",
+          case: :lower
+        )
+
+      assert byte_size(raw) == 64
+      assert :ok = Dsse.verify_es256(@payload_type, "fixed-es256-regression", raw, pem)
+    end
+
+    test "64 bytes always use the raw path even with a malformed DER prefix", %{public_pem: pem} do
+      assert {:error, :signature_mismatch} =
+               Dsse.verify_es256(@payload_type, "p", <<0x30, 0::size(504)>>, pem)
+    end
+
+    test "accepts the minimum DER structure for cryptographic checking", %{public_pem: pem} do
+      assert {:error, :signature_mismatch} =
+               Dsse.verify_es256(@payload_type, "p", <<0x30, 6, 2, 1, 1, 2, 1, 1>>, pem)
+    end
+
+    test "rejects malformed or noncanonical DER before cryptographic verification", %{
+      public_pem: pem
+    } do
+      valid_shape = <<0x30, 6, 2, 1, 1, 2, 1, 1>>
+
+      malformed = [
+        <<0x30, 7, 2, 1, 1, 2, 1, 1>>,
+        <<0x30, 5, 2, 1, 1, 2, 1, 1>>,
+        valid_shape <> <<0>>,
+        <<0x30, 0x81, 6, 2, 1, 1, 2, 1, 1>>,
+        <<0x30, 0x80, 2, 1, 1, 2, 1, 1, 0, 0>>,
+        <<0x30, 6, 3, 1, 1, 2, 1, 1>>,
+        <<0x30, 6, 2, 1, 1, 3, 1, 1>>,
+        <<0x30, 6, 2, 0, 2, 2, 1, 1>>,
+        <<0x30, 6, 2, 1, 0, 2, 1, 1>>,
+        <<0x30, 6, 2, 1, 0x80, 2, 1, 1>>,
+        <<0x30, 7, 2, 2, 0, 1, 2, 1, 1>>,
+        <<0x30, 9, 2, 1, 1, 2, 1, 1, 2, 1, 1>>,
+        <<0x30, 38, 2, 33, 1, 0::size(256), 2, 1, 1>>,
+        <<0x30, 68, 0::size(544)>>,
+        <<0x30, 69, 0::size(552)>>,
+        <<0x30, 70, 0::size(560)>>
+      ]
+
+      for signature <- malformed do
+        assert {:error, :invalid_signature_format} =
+                 Dsse.verify_es256(@payload_type, "p", signature, pem)
+      end
+    end
+  end
+
   describe "verify_es256/4 — input shape errors" do
     test "invalid PEM returns :invalid_pem" do
       assert {:error, :invalid_pem} =
@@ -129,8 +220,8 @@ defmodule Recurse.Shared.Attestation.DsseVerifyEs256Test do
       public_jwk = JOSE.JWK.to_public(jwk)
       {_, pem} = JOSE.JWK.to_pem(public_jwk)
 
-      # 32 bytes is neither raw r||s (64) nor DER (70-72) — should reject.
-      bad_sig = :crypto.strong_rand_bytes(32)
+      # This is neither raw r||s nor a DER sequence.
+      bad_sig = :binary.copy(<<1>>, 32)
 
       assert {:error, :invalid_signature_format} =
                Dsse.verify_es256(@payload_type, "p", bad_sig, pem)
@@ -141,9 +232,9 @@ defmodule Recurse.Shared.Attestation.DsseVerifyEs256Test do
       public_jwk = JOSE.JWK.to_public(jwk)
       {_, pem} = JOSE.JWK.to_pem(public_jwk)
 
-      # 50 bytes — neither raw (64) nor DER (70-72) — must reject without
+      # Malformed 50-byte input must reject without
       # crashing in `:public_key.verify/4`. F7 follow-up regression case.
-      bad_sig = :crypto.strong_rand_bytes(50)
+      bad_sig = :binary.copy(<<1>>, 50)
 
       assert {:error, :invalid_signature_format} =
                Dsse.verify_es256(@payload_type, "p", bad_sig, pem)
@@ -154,9 +245,9 @@ defmodule Recurse.Shared.Attestation.DsseVerifyEs256Test do
       public_jwk = JOSE.JWK.to_public(jwk)
       {_, pem} = JOSE.JWK.to_pem(public_jwk)
 
-      # 0x30-prefixed but 100 bytes (outside 70-72 valid P-256 DER range).
+      # 0x30-prefixed but larger than any P-256 DER signature.
       # Don't let coincidental DER prefix bypass length-bounding.
-      bad_sig = <<0x30>> <> :crypto.strong_rand_bytes(99)
+      bad_sig = <<0x30>> <> :binary.copy(<<1>>, 99)
 
       assert {:error, :invalid_signature_format} =
                Dsse.verify_es256(@payload_type, "p", bad_sig, pem)
@@ -191,6 +282,10 @@ defmodule Recurse.Shared.Attestation.DsseVerifyEs256Test do
     test "returns :invalid_pem for malformed input" do
       assert {:error, :invalid_pem} = Dsse.pem_to_public_key("not pem")
     end
+  end
+
+  defp hex_coordinate(hex) do
+    hex |> Base.decode16!(case: :lower) |> Base.url_encode64(padding: false)
   end
 
   defp mutate_random_byte(bin) do
