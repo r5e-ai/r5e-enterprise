@@ -14,6 +14,8 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
 
   doctest HeaderFilter
 
+  @wire_timeout 10_000
+
   @meta %{trace_id: "01ARZ_TRACE_ULID", tenant_id: "01TEN_TENANT_ULID"}
 
   describe "spec 012 S2 — Claude Code / Anthropic headers" do
@@ -581,7 +583,8 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
     {:ok, {_, port}} = ThousandIsland.listener_info(server)
     {:ok, socket} = :gen_tcp.connect(~c"localhost", port, [:binary, active: false])
     :ok = :gen_tcp.send(socket, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-    bytes = read_to_close(socket, "")
+    on_exit(fn -> :gen_tcp.close(socket) end)
+    bytes = read_to_close(socket, "", wire_deadline())
     assert bytes =~ "transfer-encoding: chunked"
     assert bytes =~ "request-id: preserved"
     refute bytes =~ "content-length:"
@@ -598,8 +601,8 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
     parent = self()
 
     spawn_link(fn ->
-      {:ok, socket} = :gen_tcp.accept(listener, 1_000)
-      send(parent, {:wire_upgrade, read_headers(socket, "")})
+      {:ok, socket} = :gen_tcp.accept(listener, @wire_timeout)
+      send(parent, {:wire_upgrade, read_headers(socket, "", wire_deadline())})
       :gen_tcp.close(socket)
     end)
 
@@ -625,7 +628,7 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
 
     {:ok, conn} = Mint.HTTP.connect(:http, "localhost", port, protocols: [:http1], mode: :passive)
     {:ok, conn, _} = Mint.WebSocket.upgrade(:ws, conn, "/responses", headers)
-    assert_receive {:wire_upgrade, bytes}, 1_000
+    assert_receive {:wire_upgrade, bytes}, @wire_timeout
     Mint.HTTP.close(conn)
     lines = bytes |> String.downcase() |> String.split("\r\n")
     assert Enum.count(lines, &(&1 == "connection: upgrade")) == 1
@@ -636,21 +639,31 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
     refute bytes =~ "x-private"
   end
 
-  defp read_headers(socket, bytes) do
+  # Bound the whole exchange while allowing scheduling under the full CI suite.
+  # A fresh timeout per fragment could conceal a peer that never finishes.
+  defp wire_deadline, do: System.monotonic_time(:millisecond) + @wire_timeout
+
+  defp wire_remaining(deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    assert remaining > 0, "HTTP fixture exceeded its wire deadline"
+    remaining
+  end
+
+  defp read_headers(socket, bytes, deadline) do
     if String.contains?(bytes, "\r\n\r\n") do
       bytes
     else
-      {:ok, next} = :gen_tcp.recv(socket, 0, 1_000)
+      {:ok, next} = :gen_tcp.recv(socket, 0, wire_remaining(deadline))
       assert byte_size(bytes) + byte_size(next) < 16_384
-      read_headers(socket, bytes <> next)
+      read_headers(socket, bytes <> next, deadline)
     end
   end
 
-  defp read_to_close(socket, bytes) do
-    case :gen_tcp.recv(socket, 0, 1_000) do
+  defp read_to_close(socket, bytes, deadline) do
+    case :gen_tcp.recv(socket, 0, wire_remaining(deadline)) do
       {:ok, next} ->
         assert byte_size(bytes) + byte_size(next) < 16_384
-        read_to_close(socket, bytes <> next)
+        read_to_close(socket, bytes <> next, deadline)
 
       {:error, :closed} ->
         bytes
