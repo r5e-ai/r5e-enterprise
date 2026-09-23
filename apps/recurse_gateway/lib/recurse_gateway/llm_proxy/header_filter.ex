@@ -36,9 +36,9 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
       Proxy-Authenticate
       Proxy-Authorization
       TE
-      Trailers
+      Trailer
       Transfer-Encoding
-      Upgrade   (preserved on WS upgrade — see `forward_request_headers/2`)
+      Upgrade   (reconstructed on WS upgrade — see `forward_request_headers/3`)
 
   ## Iron-Law check (`elixir:elixir-thinking`)
 
@@ -72,16 +72,18 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
         }
 
   # Hop-by-hop strip list per RFC 7230 §6.1 (lower-cased; comparisons
-  # are case-insensitive). `Upgrade` is conditionally preserved when
-  # forwarding a WS upgrade — see opts on `forward_request_headers/2`.
+  # are case-insensitive). WS upgrade headers are reconstructed after stripping.
+  # Retain the formerly stripped nonstandard `trailers` alias for compatibility.
   @hop_by_hop_request ~w[
     connection
     keep-alive
     proxy-authenticate
     proxy-authorization
     te
+    trailer
     trailers
     transfer-encoding
+    upgrade
   ]
 
   # Same list for response-side stripping. Upgrade is normally hop-by-hop;
@@ -94,6 +96,7 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
     proxy-authenticate
     proxy-authorization
     te
+    trailer
     trailers
     transfer-encoding
     upgrade
@@ -109,7 +112,8 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
   # Headers whose VALUE is a credential. Never logged verbatim — see
   # `redact_credential/1` (spec 012 S2: the Claude Code OAuth bearer and
   # `x-api-key` both cross this proxy).
-  @credential_headers ~w[authorization x-api-key proxy-authorization]
+  @credential_headers ~w[authorization x-api-key proxy-authorization x-r5e-managed-route]
+  @managed_route_header "x-r5e-managed-route"
 
   @doc """
   Filter request headers for forwarding upstream.
@@ -117,11 +121,12 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
   ## Steps
 
     1. Strip hop-by-hop headers per RFC 7230 §6.1.
-       - When `:websocket_upgrade?` is true (default false), the
-         `Upgrade` and `Connection` headers ARE preserved because
-         WebSocket framing requires `Connection: upgrade` +
-         `Upgrade: websocket` to traverse end-to-end. The rest of
-         the hop-by-hop list still applies.
+       - Strip fields nominated by every `Connection` value too.
+       - When `:websocket_upgrade?` is true (default false), append only
+         `Connection: upgrade` and `Upgrade: websocket`, never client options.
+         WebSocketBridge removes this pair before Mint.WebSocket generates
+         the upstream handshake; each hop has its own upgrade headers.
+       - The reserved managed-route credential never crosses this hop.
     2. Inject `X-Recurse-Trace-Id` + `X-Recurse-Tenant-Id` (overwriting
        any client-supplied value to prevent spoofing — these are
        proxy-controlled).
@@ -136,8 +141,8 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
   ## Invariants
 
     * **No client-supplied header is silently dropped** beyond the
-      RFC 7230 strip list. Per R-012: every entry in the whitelist
-      passes through unchanged.
+      fixed/nominated hop-by-hop fields, reserved managed credential and
+      documented framing exceptions. End-to-end R-012 fields are unchanged.
     * **The R-012 whitelist is documented for clarity but NOT
       enforced as an allowlist** — the strip-list-only approach
       future-proofs against new client headers (e.g., a future Codex
@@ -167,17 +172,12 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
     websocket_upgrade? = Keyword.get(opts, :websocket_upgrade?, false)
     upstream_host = Keyword.get(opts, :upstream_host)
 
-    strip_set =
-      if websocket_upgrade? do
-        # WS upgrade preserves Upgrade + Connection: upgrade end-to-end.
-        # The rest of hop-by-hop still applies.
-        @hop_by_hop_request -- ~w[connection]
-      else
-        @hop_by_hop_request
-      end
+    strip_set = MapSet.union(MapSet.new(@hop_by_hop_request), connection_options(headers))
 
     headers
-    |> Enum.reject(fn {name, _value} -> downcase(name) in strip_set end)
+    |> Enum.reject(fn {name, _value} ->
+      downcase(name) == @managed_route_header or MapSet.member?(strip_set, downcase(name))
+    end)
     # Strip `accept-encoding` so the upstream replies identity-encoded.
     #
     # This proxy is not a dumb relay: it PARSES the response stream to
@@ -199,10 +199,27 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
     |> Enum.reject(fn {name, _value} ->
       downcase(name) in [@trace_id_header, @tenant_id_header]
     end)
+    |> websocket_headers(websocket_upgrade?)
     |> rewrite_host(upstream_host)
     |> List.insert_at(-1, {@trace_id_header, trace_id})
     |> List.insert_at(-1, {@tenant_id_header, tenant_id})
   end
+
+  defp connection_options(headers) do
+    headers
+    |> Enum.filter(fn {name, _} -> downcase(name) == "connection" end)
+    |> Enum.flat_map(fn {_, value} -> String.split(value, ",") end)
+    |> Enum.map(fn option ->
+      Regex.replace(~r/\A[ \t]+|[ \t]+\z/, option, "") |> downcase()
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp websocket_headers(headers, true),
+    do: headers ++ [{"connection", "upgrade"}, {"upgrade", "websocket"}]
+
+  defp websocket_headers(headers, _), do: headers
 
   defp rewrite_host(headers, nil), do: headers
 
@@ -215,7 +232,7 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
   @doc """
   Filter response headers for forwarding back to the client.
 
-  Strips hop-by-hop per RFC 7230. Forwards all other upstream headers
+  Strips fixed and Connection-nominated hop-by-hop fields per RFC 7230. Forwards all other upstream headers
   unchanged (FR-015 transparency: rate-limit headers, request-id,
   openai-organization, etc. all pass through).
 
@@ -245,8 +262,10 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
   """
   @spec forward_response_headers(headers()) :: headers()
   def forward_response_headers(headers) when is_list(headers) do
+    strip_set = MapSet.union(MapSet.new(@hop_by_hop_response), connection_options(headers))
+
     Enum.reject(headers, fn {name, _value} ->
-      downcase(name) in @hop_by_hop_response or downcase(name) == "content-length"
+      MapSet.member?(strip_set, downcase(name)) or downcase(name) == "content-length"
     end)
   end
 
@@ -326,13 +345,15 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilter do
   def redact_credential(_), do: "…<redacted len=0>"
 
   @doc """
-  Return `headers` with every credential value replaced by its
-  `redact_credential/1` form. The ONLY shape in which request headers may
+  Remove the reserved managed-route header entirely; replace other credential
+  values with their `redact_credential/1` form. The ONLY shape in which request headers may
   be logged or inspected.
   """
   @spec redact_headers(headers()) :: headers()
   def redact_headers(headers) when is_list(headers) do
-    Enum.map(headers, fn {name, value} ->
+    headers
+    |> Enum.reject(fn {name, _} -> downcase(name) == @managed_route_header end)
+    |> Enum.map(fn {name, value} ->
       if credential_header?(name), do: {name, redact_credential(value)}, else: {name, value}
     end)
   end
