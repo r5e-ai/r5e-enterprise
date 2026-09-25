@@ -14,6 +14,8 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
 
   doctest HeaderFilter
 
+  @wire_timeout 10_000
+
   @meta %{trace_id: "01ARZ_TRACE_ULID", tenant_id: "01TEN_TENANT_ULID"}
 
   describe "spec 012 S2 — Claude Code / Anthropic headers" do
@@ -315,7 +317,7 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
       refute "transfer-encoding" in names
     end
 
-    test "preserves Connection header on WS upgrade so 'upgrade' value reaches upstream" do
+    test "constructs canonical Connection and Upgrade on WS upgrade" do
       headers = [
         {"connection", "upgrade"},
         {"upgrade", "websocket"}
@@ -325,9 +327,6 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
         HeaderFilter.forward_request_headers(headers, @meta, websocket_upgrade?: true)
 
       assert {"connection", "upgrade"} in result
-      # Upgrade is not in the strip list at all (and is not preserved in
-      # the non-WS path either — Mint would refuse it). On WS upgrade the
-      # caller relies on the inbound upgrade headers passing through.
       assert {"upgrade", "websocket"} in result
     end
 
@@ -454,6 +453,223 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
     end
   end
 
+  describe "Connection options apply to both hops" do
+    test "repeated mixed-case fields and comma OWS strip every nominated occurrence" do
+      headers = [
+        {"CoNnEcTiOn", " \tX-Hop-Private , UpGrAdE, , x-repeat\t "},
+        {"connection", "X-Other, x-recurse-trace-id, X-Recurse-Tenant-Id"},
+        {"X-Hop-Private", "private"},
+        {"x-repeat", "one"},
+        {"X-Repeat", "two"},
+        {"x-other", "other"},
+        {"Trailer", "X-Checksum"},
+        {"Upgrade", "h2c"},
+        {"Transfer-Encoding", "chunked"},
+        {"content-length", "123"},
+        {"x-recurse-trace-id", "spoof"},
+        {"X-Recurse-Tenant-Id", "spoof"},
+        {"authorization", "Bearer provider"},
+        {"request-id", "upstream"},
+        {"content-encoding", "gzip"}
+      ]
+
+      request = HeaderFilter.forward_request_headers(headers, @meta)
+      response = HeaderFilter.forward_response_headers(headers)
+
+      for result <- [request, response],
+          name <- ~w(connection x-hop-private x-repeat x-other trailer upgrade transfer-encoding) do
+        refute Enum.any?(result, fn {key, _} -> String.downcase(key) == name end)
+      end
+
+      assert {"x-recurse-trace-id", @meta.trace_id} in request
+      assert {"x-recurse-tenant-id", @meta.tenant_id} in request
+      refute inspect(request) =~ "spoof"
+      assert {"content-length", "123"} in request
+      refute List.keyfind(response, "content-length", 0)
+
+      for result <- [request, response] do
+        assert {"authorization", "Bearer provider"} in result
+        assert {"request-id", "upstream"} in result
+        assert {"content-encoding", "gzip"} in result
+      end
+    end
+
+    test "nominated normally end-to-end fields are not exempt from hop semantics" do
+      headers = [
+        {"connection", "AUTHORIZATION, content-type"},
+        {"authorization", "provider"},
+        {"content-type", "application/json"}
+      ]
+
+      for result <- [
+            HeaderFilter.forward_request_headers(headers, @meta),
+            HeaderFilter.forward_response_headers(headers)
+          ] do
+        refute List.keyfind(result, "authorization", 0)
+        refute List.keyfind(result, "content-type", 0)
+      end
+    end
+
+    test "WS reconstructs only the required pair and strips client-nominated metadata" do
+      headers = [
+        {"Connection", "keep-alive, upgrade, x-private"},
+        {"connection", "x-other"},
+        {"Upgrade", "h2c"},
+        {"upgrade", "not-websocket"},
+        {"x-private", "secret"},
+        {"x-other", "secret"},
+        {"authorization", "provider"}
+      ]
+
+      result = HeaderFilter.forward_request_headers(headers, @meta, websocket_upgrade?: true)
+
+      assert [{"connection", "upgrade"}] ==
+               Enum.filter(result, fn {k, _} -> String.downcase(k) == "connection" end)
+
+      assert [{"upgrade", "websocket"}] ==
+               Enum.filter(result, fn {k, _} -> String.downcase(k) == "upgrade" end)
+
+      refute inspect(result) =~ "secret"
+      assert {"authorization", "provider"} in result
+    end
+
+    test "reserved route tokens never reach request forwarding or diagnostics" do
+      token = String.duplicate("secret-token", 4)
+
+      headers = [
+        {"X-R5E-Managed-Route", token},
+        {"x-r5e-managed-route", token},
+        {"authorization", "provider"}
+      ]
+
+      for ws <- [false, true] do
+        result = HeaderFilter.forward_request_headers(headers, @meta, websocket_upgrade?: ws)
+        refute inspect(result) =~ token
+        assert {"authorization", "provider"} in result
+      end
+
+      assert HeaderFilter.credential_header?("X-R5E-Managed-Route")
+      diagnostic = HeaderFilter.redact_headers(headers)
+      refute inspect(diagnostic) =~ "secret-t"
+      refute Enum.any?(diagnostic, fn {k, _} -> String.downcase(k) == "x-r5e-managed-route" end)
+    end
+  end
+
+  defmodule FramingFixture do
+    def init(opts), do: opts
+
+    def call(conn, _) do
+      headers = [
+        {"connection", "x-private"},
+        {"x-private", "hop-only"},
+        {"trailer", "x-checksum"},
+        {"content-length", "100"},
+        {"request-id", "preserved"}
+      ]
+
+      conn =
+        Enum.reduce(HeaderFilter.forward_response_headers(headers), conn, fn {k, v}, acc ->
+          Plug.Conn.put_resp_header(acc, k, v)
+        end)
+
+      {:ok, conn} = conn |> Plug.Conn.send_chunked(200) |> Plug.Conn.chunk("ok")
+      conn
+    end
+  end
+
+  test "actual response framing regenerates chunking without upstream length or nominations" do
+    {:ok, _} = Application.ensure_all_started(:bandit)
+    server = start_supervised!({Bandit, plug: FramingFixture, port: 0, ip: {127, 0, 0, 1}})
+    {:ok, {_, port}} = ThousandIsland.listener_info(server)
+    {:ok, socket} = :gen_tcp.connect(~c"localhost", port, [:binary, active: false])
+    :ok = :gen_tcp.send(socket, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+    on_exit(fn -> :gen_tcp.close(socket) end)
+    bytes = read_to_close(socket, "", wire_deadline())
+    assert bytes =~ "transfer-encoding: chunked"
+    assert bytes =~ "request-id: preserved"
+    refute bytes =~ "content-length:"
+    refute bytes =~ "trailer:"
+    refute bytes =~ "x-private:"
+    assert bytes =~ "2\r\nok\r\n0\r\n\r\n"
+  end
+
+  test "Mint regenerates the WS pair on the upstream hop without duplicate options" do
+    {:ok, _} = Application.ensure_all_started(:mint_web_socket)
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    {:ok, {_, port}} = :inet.sockname(listener)
+    parent = self()
+
+    spawn_link(fn ->
+      {:ok, socket} = :gen_tcp.accept(listener, @wire_timeout)
+      send(parent, {:wire_upgrade, read_headers(socket, "", wire_deadline())})
+      :gen_tcp.close(socket)
+    end)
+
+    headers =
+      HeaderFilter.forward_request_headers(
+        [
+          {"connection", "upgrade, x-private"},
+          {"upgrade", "websocket"},
+          {"x-private", "secret"},
+          {"authorization", "provider"},
+          {"sec-websocket-protocol", "openai.responses.v1"}
+        ],
+        @meta,
+        websocket_upgrade?: true
+      )
+
+    # Same final boundary as WebSocketBridge.open_upstream_websocket: Mint owns
+    # these handshake fields; the filter's canonical pair is not passed twice.
+    headers =
+      Enum.reject(headers, fn {k, _} ->
+        String.downcase(k) in ~w(sec-websocket-key sec-websocket-version connection upgrade host content-length)
+      end)
+
+    {:ok, conn} = Mint.HTTP.connect(:http, "localhost", port, protocols: [:http1], mode: :passive)
+    {:ok, conn, _} = Mint.WebSocket.upgrade(:ws, conn, "/responses", headers)
+    assert_receive {:wire_upgrade, bytes}, @wire_timeout
+    Mint.HTTP.close(conn)
+    lines = bytes |> String.downcase() |> String.split("\r\n")
+    assert Enum.count(lines, &(&1 == "connection: upgrade")) == 1
+    assert Enum.count(lines, &(&1 == "upgrade: websocket")) == 1
+    assert "authorization: provider" in lines
+    assert "sec-websocket-protocol: openai.responses.v1" in lines
+    assert ("x-recurse-trace-id: " <> String.downcase(@meta.trace_id)) in lines
+    refute bytes =~ "x-private"
+  end
+
+  # Bound the whole exchange while allowing scheduling under the full CI suite.
+  # A fresh timeout per fragment could conceal a peer that never finishes.
+  defp wire_deadline, do: System.monotonic_time(:millisecond) + @wire_timeout
+
+  defp wire_remaining(deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    assert remaining > 0, "HTTP fixture exceeded its wire deadline"
+    remaining
+  end
+
+  defp read_headers(socket, bytes, deadline) do
+    if String.contains?(bytes, "\r\n\r\n") do
+      bytes
+    else
+      {:ok, next} = :gen_tcp.recv(socket, 0, wire_remaining(deadline))
+      assert byte_size(bytes) + byte_size(next) < 16_384
+      read_headers(socket, bytes <> next, deadline)
+    end
+  end
+
+  defp read_to_close(socket, bytes, deadline) do
+    case :gen_tcp.recv(socket, 0, wire_remaining(deadline)) do
+      {:ok, next} ->
+        assert byte_size(bytes) + byte_size(next) < 16_384
+        read_to_close(socket, bytes <> next, deadline)
+
+      {:error, :closed} ->
+        bytes
+    end
+  end
+
   describe "introspection helpers" do
     test "hop_by_hop_request/0 returns the canonical strip list" do
       list = HeaderFilter.hop_by_hop_request()
@@ -461,7 +677,9 @@ defmodule Recurse.Gateway.LlmProxy.HeaderFilterTest do
       assert "connection" in list
       assert "keep-alive" in list
       assert "transfer-encoding" in list
+      assert "trailer" in list
       assert "trailers" in list
+      assert "upgrade" in list
       assert "te" in list
       assert "proxy-authenticate" in list
       assert "proxy-authorization" in list
