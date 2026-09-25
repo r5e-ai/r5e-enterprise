@@ -2,7 +2,7 @@
   "format": "r5e-release-dependencies/v1",
   "repositories": {
     "r5e-core": {
-      "commit": "46a209d5fc6e7a3c50058ebef54ee5ec92400b19",
+      "commit": "fe9169513b307d8e537007ef4905101ae35767da",
       "url": "https://gitlab.com/r5e-group/r5e-core.git"
     },
     "r5e-kernel": {

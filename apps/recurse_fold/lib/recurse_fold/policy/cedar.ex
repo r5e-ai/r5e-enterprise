@@ -99,6 +99,9 @@ defmodule Recurse.Fold.Policy.Cedar do
                    "(spec 010, Edge Cases). The evaluation record still carries the exact " <>
                    "bytes the engine was handed."
 
+  @doc "The fixed upstream policy this fold narrows."
+  def upstream, do: R5e.Policy.KernelCedar
+
   @doc "The `group/version/Kind/name` of the bundle this engine evaluates."
   def bundle_ref, do: @bundle_ref
 
@@ -120,10 +123,16 @@ defmodule Recurse.Fold.Policy.Cedar do
     # Upstream policy can narrow descendant work. A tenant permit cannot
     # override an upstream denial. Both evaluations belong to this one
     # admission, with all their reads checked under the same append lock.
-    with {:ok, upstream} <- R5e.Policy.KernelCedar.authorize(request) do
-      request
-      |> authorize_workload()
-      |> with_upstream(upstream)
+    case R5e.Policy.KernelCedar.authorize(request) do
+      {:ok, upstream} ->
+        request |> authorize_workload() |> compose(upstream)
+
+      {:deny, reason, upstream} ->
+        meta =
+          skipped_meta(upstream["decision"], "upstream refused; not evaluated here")
+          |> Map.put("reason", "upstreamRefused")
+
+        compose({:deny, reason, meta}, upstream)
     end
   end
 
@@ -150,24 +159,81 @@ defmodule Recurse.Fold.Policy.Cedar do
     end
   end
 
-  defp with_upstream({:ok, meta}, upstream), do: {:ok, merge_upstream(meta, upstream)}
+  # Public for composing already-evaluated results without evaluating Cedar
+  # again; tests exercise impossible-to-schedule generation races at this seam.
+  @doc false
+  @spec compose({:ok, map()} | {:deny, String.t(), map()}, map()) ::
+          {:ok, map()} | {:deny, String.t(), map()}
+  def compose(result, upstream) do
+    {meta, outcome} =
+      case result do
+        {:ok, meta} -> {meta, :ok}
+        {:deny, reason, meta} -> {meta, {:deny, reason}}
+      end
 
-  defp with_upstream({:deny, reason, meta}, upstream),
-    do: {:deny, reason, merge_upstream(meta, upstream)}
+    upstream_generations = upstream["generations"] || %{}
+    local_generations = meta["generations"] || %{}
 
-  defp with_upstream(other, _upstream), do: other
+    conflicts = generation_conflicts(upstream_generations, local_generations)
 
-  defp merge_upstream(meta, upstream) do
-    meta
-    |> Map.put("upstreamPolicy", upstream)
-    |> Map.put(
-      "generations",
-      Map.merge(upstream["generations"] || %{}, meta["generations"] || %{})
-    )
-    |> Map.put(
-      "derivedObjects",
-      Enum.uniq((upstream["derivedObjects"] || []) ++ (meta["derivedObjects"] || []))
-    )
+    derived = Enum.uniq((upstream["derivedObjects"] || []) ++ (meta["derivedObjects"] || []))
+    nested = Map.put(meta, "upstreamPolicy", upstream)
+
+    if map_size(conflicts) == 0 do
+      composed =
+        nested
+        |> Map.put("generations", Map.merge(upstream_generations, local_generations))
+        |> Map.put("derivedObjects", derived)
+
+      composed_result(outcome, composed)
+    else
+      # The Cedar result remains intact: changing its decision would disagree
+      # with its evaluation record. The outer block records composition only.
+      meta =
+        skipped_meta("error", "generation conflict during composition; no additional evaluation")
+        |> Map.put("stage", "composition")
+        |> Map.put("generationConflicts", conflicts)
+        |> Map.put("upstreamPolicy", nested)
+        |> Map.put(
+          "generations",
+          Map.merge(
+            Map.drop(upstream_generations, Map.keys(conflicts)),
+            Map.drop(local_generations, Map.keys(conflicts))
+          )
+        )
+        |> Map.put("derivedObjects", derived)
+
+      {:deny, "policy generation conflict (fail-closed)", meta}
+    end
+  end
+
+  defp composed_result(:ok, meta), do: {:ok, meta}
+  defp composed_result({:deny, reason}, meta), do: {:deny, reason, meta}
+
+  defp generation_conflicts(upstream, local) do
+    for {ref, generation} <- local,
+        Map.has_key?(upstream, ref),
+        upstream[ref] != generation,
+        into: %{},
+        do: {ref, %{"upstream" => upstream[ref], "local" => generation}}
+  end
+
+  defp skipped_meta(decision, note) do
+    %{
+      "engine" => @engine,
+      "decision" => decision,
+      "bundleRef" => @bundle_ref,
+      "bundle" => nil,
+      "source" => nil,
+      "shape" => nil,
+      "evaluation" => nil,
+      "evaluated" => false,
+      "engineBuild" => engine_build_address(),
+      "matched" => [],
+      "generations" => %{},
+      "derivedObjects" => [],
+      "note" => note
+    }
   end
 
   @doc "The complete workload jurisdiction this extension may govern."
