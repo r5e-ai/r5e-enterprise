@@ -205,7 +205,9 @@ defmodule Recurse.Shared.Attestation.Dsse do
     3. Normalize the signature into ASN.1 DER (the format
        `:public_key.verify/4` requires). DSSE raw `r || s` (64 bytes
        for P-256) goes through `raw_to_ecdsa_der/2`; pre-DER input
-       (70-72 bytes, prefix `0x30`) is passed through. See F7
+       is validated as a canonical sequence of two positive P-256-sized
+       integers before being passed through. Exactly 64 bytes always means
+       raw, even if those bytes also form valid DER. See F7
        follow-up — production receipts on audit-dev arrive DER-encoded
        from KMS / the broker, not as DSSE raw.
     4. Call `:public_key.verify(pae, :sha256, der, key)`.
@@ -243,37 +245,11 @@ defmodule Recurse.Shared.Attestation.Dsse do
     end
   end
 
-  # F7 follow-up: production receipts on audit-dev have DER-encoded ECDSA
-  # signatures (70-72 bytes, prefix 0x30 ASN.1 SEQUENCE) — they come back
-  # from KMS / the broker pre-encoded as DER. The original Phase-1
-  # `verify_es256/4` only accepted DSSE raw `r || s` (exactly 64 bytes) and
-  # ran them through `raw_to_ecdsa_der/2`, returning `nil` for any other
-  # shape. Result: every production receipt failed verification with
-  # `:invalid_signature_format` even when the signature was cryptographically
-  # valid. `:public_key.verify/4` already wants DER, so when the signature
-  # is already DER we pass it straight through; raw-format inputs still go
-  # through the existing `raw_to_ecdsa_der/2` path for the JOSE-encoded path
-  # used by `Dsse.encode/4`.
-  #
-  # Discrimination strategy: length-first, then prefix.
-  #
-  #   * 64 bytes → raw `r || s`. P-256 raw is exactly 64 bytes and DER for
-  #     P-256 is *never* 64 bytes (DER's minimum with two random 32-byte
-  #     INTEGERs and the SEQUENCE wrapper is ~70 bytes; smaller only with
-  #     extreme leading-zero stripping that doesn't occur for cryptographic
-  #     randomness). So length=64 is unambiguously raw.
-  #
-  #   * 70-72 bytes starting with 0x30 → DER `SEQUENCE { INTEGER r,
-  #     INTEGER s }`. R and S are 32 bytes each; ASN.1 INTEGER encoding may
-  #     prepend a 0x00 padding byte to either when the high bit is set
-  #     (giving 33 bytes); SEQUENCE adds 2 bytes of header and each INTEGER
-  #     adds 2 bytes of tag+length, yielding 70 (no padding), 71 (one
-  #     padded), or 72 (both padded).
-  #
-  #   * Anything else → `:invalid_signature_format`.
-  #
-  # Rejecting non-{64, 70-72} avoids the 1/256 risk that a random 32-byte
-  # blob coincidentally starts with 0x30 and gets fed to `:public_key.verify/4`.
+  # KMS / broker signatures arrive as DER; encode/4 emits raw r || s.
+  # DER integers can be shorter than 32 bytes, so valid DER can be below
+  # 70 bytes (including exactly 64). Preserve the raw-first convention for
+  # that ambiguous length; callers must supply such DER signatures as raw.
+  # All other lengths require canonical DER structure, not just a 0x30 prefix.
   @spec normalize_es256_signature(binary()) ::
           {:ok, binary()} | {:error, :invalid_signature_format}
   defp normalize_es256_signature(<<r::binary-size(32), s::binary-size(32)>>) do
@@ -283,12 +259,32 @@ defmodule Recurse.Shared.Attestation.Dsse do
     end
   end
 
-  defp normalize_es256_signature(<<0x30, _rest::binary>> = der)
-       when byte_size(der) in 70..72 do
-    {:ok, der}
+  defp normalize_es256_signature(<<0x30, len, body::binary-size(len)>> = der)
+       when len in 6..70 do
+    case body do
+      <<0x02, r_len, r::binary-size(r_len), 0x02, s_len, s::binary-size(s_len)>> ->
+        if valid_es256_der_integer?(r) and valid_es256_der_integer?(s) do
+          {:ok, der}
+        else
+          {:error, :invalid_signature_format}
+        end
+
+      _ ->
+        {:error, :invalid_signature_format}
+    end
   end
 
   defp normalize_es256_signature(_), do: {:error, :invalid_signature_format}
+
+  # Positive, minimally encoded INTEGERs of at most 256 bits. A leading
+  # zero is permitted only when needed to keep the next byte positive.
+  defp valid_es256_der_integer?(<<0, first, rest::binary>>),
+    do: first >= 0x80 and byte_size(rest) <= 31
+
+  defp valid_es256_der_integer?(<<first, rest::binary>>),
+    do: first in 1..0x7F and byte_size(rest) <= 31
+
+  defp valid_es256_der_integer?(_), do: false
 
   @doc """
   Decode a PEM-encoded SubjectPublicKeyInfo into an OTP `:public_key`
